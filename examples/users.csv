@@ -3,7 +3,7 @@ user_id,name,age,gender,location,purchase_amount,login_count,is_active,last_logi
 2,Bob Smith,34,Male,California,149.50,23,true,5
 3,Carol Williams,42,Female,Texas,599.99,67,false,30
 4,David Brown,25,Male,Florida,89.99,12,true,1
-5,Eve Davis,31,Female,New York,399.99,89,true,3
+5,Eve Davis,,Female,New York,399.99,89,true,3
 6,Frank Miller,38,Male,California,249.99,34,false,45
 7,Grace Wilson,29,Female,Texas,179.99,56,true,7
 8,Henry Moore,45,Male,Florida,699.99,78,true,4
@@ -15,7 +15,7 @@ user_id,name,age,gender,location,purchase_amount,login_count,is_active,last_logi
 14,Noah Harris,30,Male,California,159.99,38,false,60
 15,Olivia Martin,35,Female,Texas,329.99,74,true,9
 16,Peter Thompson,27,Male,Florida,219.99,41,true,3
-17,Quinn Garcia,44,Female,New York,649.99,85,false,35
+17,Quinn Garcia,,Female,New York,649.99,85,false,35
 18,Ryan Martinez,32,Male,California,189.99,52,true,4
 19,Sarah Robinson,36,Female,Texas,269.99,69,true,10
 20,Tyler Clark,39,Male,Florida,379.99,83,true,5
@@ -39,7 +39,7 @@ user_id,name,age,gender,location,purchase_amount,login_count,is_active,last_logi
 38,Landon Mitchell,36,Male,California,229.99,55,true,8
 39,Madison Perez,34,Female,Texas,319.99,73,true,12
 40,Nathan Roberts,42,Male,Florida,459.99,79,false,38
-41,Olivia Turner,30,Female,New York,179.99,37,true,4
+41,Olivia Turner,None,Female,New York,179.99,37,true,4
 42,Parker Phillips,49,Male,California,849.99,95,true,6
 43,Quinn Campbell,37,Female,Texas,399.99,81,true,9
 44,Riley Parker,25,Male,Florida,159.99,28,true,2
@@ -48,4 +48,4 @@ user_id,name,age,gender,location,purchase_amount,login_count,is_active,last_logi
 47,Uma Collins,38,Female,Texas,339.99,66,true,10
 48,Vincent Stewart,43,Male,Florida,499.99,84,true,5
 49,Willow Sanchez,29,Female,New York,249.99,49,true,8
-50,Xander Morris,40,Male,California,429.99,77,false,47
+50,Xander Morris,,Male,California,429.99,77,false,47

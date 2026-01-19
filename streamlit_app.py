@@ -141,11 +141,11 @@ def main():
                     config_loader = ConfigLoader()
                     config_loader.config['global_epsilon'] = global_epsilon
 
-                    # Apply anonymization
-                    anonymized_data, budget = apply_anonymization(data, config_loader)
+                    # Apply anonymization with preprocessing
+                    anonymized_data, budget, preprocessing_report, preprocessed_data, inferred_types = apply_anonymization(data, config_loader)
 
                     # Display results
-                    display_results(headers, anonymized_data, budget, data, column_types)
+                    display_results(headers, anonymized_data, budget, preprocessed_data, inferred_types, preprocessing_report)
 
         except Exception as e:
             st.error(f"Error processing file: {e}")
@@ -177,7 +177,7 @@ def main():
 
 def display_results(headers: List[str], anonymized_data: List[Dict[str, Any]],
                    budget: PrivacyBudget, original_data: List[Dict[str, Any]],
-                   column_types: Dict[str, str]):
+                   column_types: Dict[str, str], preprocessing_report: Dict[str, Any] = None):
     """Display anonymization results with explanations."""
 
     st.header("🎯 Anonymization Results")
@@ -203,6 +203,10 @@ def display_results(headers: List[str], anonymized_data: List[Dict[str, Any]],
 
     if len(anonymized_data) > 10:
         st.caption(f"Showing first 10 of {len(anonymized_data)} anonymized rows")
+
+    # Display preprocessing report
+    if preprocessing_report:
+        display_preprocessing_report(preprocessing_report)
 
     # Download button
     st.subheader("💾 Download Results")
@@ -357,6 +361,134 @@ def display_metrics(original_data: List[Dict[str, Any]],
                 """)
     else:
         st.warning("⚠️ No quantitative columns found for detailed analysis. Only categorical data was processed.")
+
+
+def display_preprocessing_report(report: Dict[str, Any]):
+    """Display preprocessing pipeline results."""
+    with st.expander("🔧 Data Preprocessing Report", expanded=False):
+        # Overall summary
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            quality_score = report.get("data_quality_score", 0)
+            st.metric("Data Quality Score", f"{quality_score}/100")
+
+            if quality_score >= 80:
+                st.success("Excellent quality")
+            elif quality_score >= 60:
+                st.warning("Fair quality")
+            else:
+                st.error("Poor quality - review data")
+
+        with col2:
+            epsilon_used = report.get("epsilon_used", 0)
+            st.metric("Privacy Budget Used", f"ε = {epsilon_used:.3f}")
+
+        with col3:
+            orig_rows = report.get("original_row_count", 0)
+            final_rows = report.get("final_row_count", 0)
+            st.metric("Rows Processed", f"{final_rows}")
+
+        # Issues and recommendations
+        issues = report.get("issues_detected", [])
+        recommendations = report.get("recommendations", [])
+
+        if issues:
+            st.subheader("⚠️ Issues Detected")
+            for issue in issues:
+                st.warning(issue)
+
+        if recommendations:
+            st.subheader("💡 Recommendations")
+            for rec in recommendations:
+                st.info(rec)
+
+        # Detailed stage reports
+        stages = report.get("stages", [])
+        if stages:
+            st.subheader("📊 Processing Stages")
+
+            for stage_info in stages:
+                stage_name = stage_info.get("stage", "unknown")
+                stage_report = stage_info.get("report", {})
+
+                if stage_name == "validation":
+                    display_validation_report(stage_report)
+                elif stage_name == "imputation":
+                    display_imputation_report(stage_report)
+                elif stage_name == "outlier_analysis":
+                    display_outlier_report(stage_report)
+
+
+def display_validation_report(report: Dict[str, Any]):
+    """Display data validation results."""
+    st.write("**Data Validation:**")
+
+    quality_assessment = report.get("quality_assessment", "unknown")
+    issues = report.get("issues", {})
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Critical Issues", issues.get("critical", 0))
+    with col2:
+        st.metric("Errors", issues.get("errors", 0))
+    with col3:
+        st.metric("Warnings", issues.get("warnings", 0))
+
+    # Missing data analysis
+    missing = report.get("missing_data", {})
+    if missing.get("total_missing", 0) > 0:
+        st.write(f"**Missing Data:** {missing['missing_percentage']:.1f}% of cells")
+        if missing.get("missing_by_column"):
+            st.write("Missing by column:", missing["missing_by_column"])
+
+    # Duplicates
+    duplicates = report.get("duplicates", {})
+    if duplicates.get("duplicate_rows", 0) > 0:
+        st.write(f"**Duplicates:** {duplicates['duplicate_percentage']:.1f}% of rows")
+
+
+def display_imputation_report(report: Dict[str, Any]):
+    """Display missing value imputation results."""
+    st.write("**Missing Value Imputation:**")
+
+    cols_processed = report.get("columns_processed", 0)
+    cols_with_missing = report.get("columns_with_missing", 0)
+    total_missing = report.get("total_missing_values", 0)
+    methods = report.get("imputation_methods", {})
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Columns Processed", cols_processed)
+    with col2:
+        st.metric("Columns with Missing", cols_with_missing)
+    with col3:
+        st.metric("Total Missing Values", total_missing)
+
+    if methods:
+        st.write("**Imputation Methods Used:**")
+        for method, count in methods.items():
+            st.write(f"- {method}: {count} columns")
+
+
+def display_outlier_report(report: Dict[str, Any]):
+    """Display outlier analysis results."""
+    st.write("**Outlier Analysis:**")
+
+    total_outliers = report.get("total_outliers", 0)
+    cols_analyzed = report.get("columns_analyzed", 0)
+    cols_with_outliers = len(report.get("columns_with_outliers", []))
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Columns Analyzed", cols_analyzed)
+    with col2:
+        st.metric("Columns with Outliers", cols_with_outliers)
+    with col3:
+        st.metric("Total Outliers", total_outliers)
+
+    if cols_with_outliers > 0:
+        st.write("**Columns with outliers:**", ", ".join(report["columns_with_outliers"]))
 
 
 if __name__ == '__main__':

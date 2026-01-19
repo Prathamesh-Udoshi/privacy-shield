@@ -19,6 +19,7 @@ from dp.mechanisms import DPMechanisms, infer_column_type
 from config.loader import ConfigLoader
 from metrics.utility import generate_utility_report
 from metrics.risk import generate_risk_report
+from preprocessing.pipeline import EnhancedPreprocessingPipeline
 
 
 def read_csv_file(file_path: str, max_rows: Optional[int] = None) -> tuple[List[str], List[Dict[str, Any]]]:
@@ -159,32 +160,91 @@ def infer_column_types(headers: List[str], sample_data: List[Dict[str, Any]]) ->
 
 
 def apply_anonymization(original_data: List[Dict[str, Any]],
-                       config_loader: ConfigLoader) -> tuple[List[Dict[str, Any]], PrivacyBudget]:
+                       config_loader: ConfigLoader) -> tuple[List[Dict[str, Any]], PrivacyBudget, Dict[str, Any], List[Dict[str, Any]], Dict[str, str]]:
     """
-    Apply differential privacy anonymization to the data.
+    Apply differential privacy anonymization to the data with preprocessing.
 
     Args:
         original_data: Original data rows
         config_loader: Configuration loader
 
     Returns:
-        Tuple of (anonymized_data, privacy_budget)
+        Tuple of (anonymized_data, privacy_budget, preprocessing_report)
     """
     if not original_data:
-        return [], PrivacyBudget(config_loader.get_global_epsilon())
+        return [], PrivacyBudget(config_loader.get_global_epsilon()), {}
 
     headers = list(original_data[0].keys())
-    column_data = preprocess_data(original_data)
 
-    # Infer column types
-    print("Inferring column types...")
-    column_types = infer_column_types(headers, original_data[:min(100, len(original_data))])
+    # Stage 1: Enhanced Data Preprocessing
+    print("Running enhanced preprocessing pipeline...")
+
+    # Allocate small portion of privacy budget for preprocessing
+    total_epsilon = config_loader.get_global_epsilon()
+    preprocessing_epsilon = min(0.1, total_epsilon * 0.1)  # Use up to 10% for preprocessing
+    remaining_epsilon = total_epsilon - preprocessing_epsilon
+
+    # Create preprocessing pipeline
+    preprocessor = EnhancedPreprocessingPipeline(imputation_epsilon=preprocessing_epsilon * 0.7)
+
+    # Run preprocessing
+    preprocessed_data, preprocessing_report = preprocessor.preprocess_dataset(
+        original_data, {}, preprocessing_epsilon  # Empty column_types initially
+    )
+
+    # Show detailed preprocessing results
+    print(f"Preprocessing complete:")
+    print(f"   - Rows processed: {preprocessing_report.get('original_row_count', 0)}")
+    print(f"   - Data quality score: {preprocessing_report.get('data_quality_score', 0)}/100")
+    print(f"   - Issues detected: {len(preprocessing_report.get('issues_detected', []))}")
+
+    # Show missing data details
+    stages = preprocessing_report.get('stages', [])
+    for stage in stages:
+        if stage.get('stage') == 'imputation':
+            imputation_report = stage.get('report', {})
+            if imputation_report.get('total_missing_values', 0) > 0:
+                print(f"   - Missing values imputed: {imputation_report['total_missing_values']}")
+                missing_by_col = imputation_report.get('missing_by_column', {})
+                if missing_by_col:
+                    print("   - Missing by column:")
+                    for col, count in missing_by_col.items():
+                        print(f"     - {col}: {count} missing")
+
+        elif stage.get('stage') == 'validation':
+            validation_report = stage.get('report', {})
+            missing_data = validation_report.get('missing_data', {})
+            if missing_data.get('total_missing', 0) > 0:
+                print(f"   - Data completeness: {missing_data['missing_percentage']:.1f}% missing")
+                if missing_data.get('missing_by_column'):
+                    print("   - Missing breakdown:")
+                    for col, count in missing_data['missing_by_column'].items():
+                        percentage = (count / preprocessing_report.get('original_row_count', 1)) * 100
+                        print(f"     - {col}: {count} rows ({percentage:.1f}%)")
+
+        elif stage.get('stage') == 'outlier_analysis':
+            outlier_report = stage.get('report', {})
+            total_outliers = outlier_report.get('total_outliers', 0)
+            if total_outliers > 0:
+                print(f"   - Potential outliers detected: {total_outliers}")
+                cols_with_outliers = outlier_report.get('columns_with_outliers', [])
+                if cols_with_outliers:
+                    print(f"   - Columns with outliers: {', '.join(cols_with_outliers[:3])}{'...' if len(cols_with_outliers) > 3 else ''}")
+
+    if preprocessing_report.get('recommendations'):
+        print(f"   - Recommendations: {len(preprocessing_report['recommendations'])}")
+        for rec in preprocessing_report['recommendations'][:2]:  # Show first 2 recommendations
+            print(f"     - {rec}")
+
+    # Infer column types on preprocessed data
+    print("\nInferring column types...")
+    column_types = infer_column_types(headers, preprocessed_data[:min(100, len(preprocessed_data))])
 
     for header, col_type in column_types.items():
         print(f"  {header}: {col_type}")
 
-    # Initialize privacy budget and mechanisms
-    budget = PrivacyBudget(config_loader.get_global_epsilon())
+    # Initialize privacy budget and mechanisms with remaining epsilon
+    budget = PrivacyBudget(remaining_epsilon)
     mechanisms = DPMechanisms(budget)
 
     # Get configurations for each column
@@ -197,7 +257,7 @@ def apply_anonymization(original_data: List[Dict[str, Any]],
         column_configs[header] = config
 
         # Track numeric columns for utility analysis
-        if col_type in ['age', 'monetary', 'count']:
+        if col_type in ['age', 'year', 'monetary', 'numeric', 'count']:
             numeric_columns.append(header)
 
     # If no specific configs, auto-assign epsilon
@@ -207,6 +267,7 @@ def apply_anonymization(original_data: List[Dict[str, Any]],
         column_configs.update(auto_configs)
 
     # Apply anonymization column by column
+    column_data = preprocess_data(preprocessed_data)  # Use preprocessed data
     anonymized_columns = {}
 
     print("\nApplying differential privacy...")
@@ -277,7 +338,7 @@ def apply_anonymization(original_data: List[Dict[str, Any]],
     # Convert back to list of dicts
     anonymized_data = convert_data_back(anonymized_columns)
 
-    return anonymized_data, budget
+    return anonymized_data, budget, preprocessing_report, preprocessed_data, column_types
 
 
 def main():
@@ -347,7 +408,7 @@ Examples:
             print(f"Privacy Shield v1.0")
             print(f"Input: {args.input}")
             print(f"Output: {args.output}")
-            print(f"Global ε: {config_loader.get_global_epsilon()}")
+            print(f"Global privacy budget: {config_loader.get_global_epsilon()}")
             if args.config:
                 print(f"Config: {args.config}")
             print()
@@ -366,8 +427,8 @@ Examples:
             print("Error: No data found in input file")
             sys.exit(1)
 
-        # Apply anonymization
-        anonymized_data, budget = apply_anonymization(original_data, config_loader)
+        # Apply anonymization with preprocessing
+        anonymized_data, budget, preprocessing_report, preprocessed_data, column_types = apply_anonymization(original_data, config_loader)
 
         # Write output
         if not args.quiet:
@@ -376,11 +437,10 @@ Examples:
         write_csv_file(args.output, headers, anonymized_data)
 
         # Generate reports
-        original_columns = preprocess_data(original_data)
+        original_columns = preprocess_data(preprocessed_data)  # Use preprocessed data for fair comparison
         anonymized_columns = preprocess_data(anonymized_data)
 
-        # Convert string values to numeric for analysis
-        column_types = infer_column_types(headers, original_data[:min(100, len(original_data))])
+        # Column types are already inferred from preprocessed data above
 
         # Convert columns to appropriate types for utility analysis
         for header in headers:
@@ -430,8 +490,8 @@ Examples:
         if not args.quiet:
             print("Anonymization complete!")
             print(f"Processed {len(anonymized_data)} records")
-            print(f"Privacy budget used: ε = {budget.used_epsilon:.3f}")
-            print(f"Privacy budget remaining: ε = {budget.remaining_epsilon:.3f}")
+            print(f"Privacy budget used: {budget.used_epsilon:.3f}")
+            print(f"Privacy budget remaining: {budget.remaining_epsilon:.3f}")
 
     except KeyboardInterrupt:
         print("\nOperation cancelled by user")
