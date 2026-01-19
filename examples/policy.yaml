@@ -1,0 +1,44 @@
+# Privacy Shield Configuration Example
+# This file demonstrates how to configure differential privacy parameters
+# for different columns in your dataset.
+
+# Global privacy budget (epsilon) - higher values = less privacy but more utility
+global_epsilon: 1.0
+
+# Column-specific configurations
+# Each column can have its own privacy parameters
+columns:
+  # Age column - uses bounded Laplace to keep values in valid range
+  age:
+    method: bounded_laplace
+    epsilon: 0.2        # Privacy parameter for this column
+    min: 18            # Minimum valid age
+    max: 90            # Maximum valid age
+
+  # Purchase amount - monetary values with custom sensitivity
+  purchase_amount:
+    method: laplace
+    epsilon: 0.4
+    sensitivity: 1000.0  # Max difference in purchase amounts
+
+  # Login count - integer counts
+  login_count:
+    method: discrete_laplace
+    epsilon: 0.2
+
+  # Boolean activity flag
+  is_active:
+    method: randomized_response
+    epsilon: 0.5
+
+  # Days since last login - treated as count
+  last_login_days:
+    method: discrete_laplace
+    epsilon: 0.3
+
+# Notes:
+# - Epsilon values should sum to less than global_epsilon
+# - Lower epsilon = more privacy (more noise)
+# - Higher epsilon = less privacy (less noise, better utility)
+# - If no column config is provided, epsilon is split equally
+# - String columns (name, location, gender) are masked, not DP-anonymized
