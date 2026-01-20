@@ -2,7 +2,9 @@
 Configuration loader for Privacy Shield.
 
 This module handles loading and validation of YAML configuration files
-that specify privacy parameters for different columns.
+that specify privacy parameters for different columns and purposes.
+Supports purpose-bound privacy policies for compliance with regulations
+like GDPR's purpose limitation principle.
 """
 
 import yaml
@@ -14,28 +16,67 @@ from pathlib import Path
 class ConfigLoader:
     """
     Loads and validates Privacy Shield configuration from YAML files.
+    
+    Supports purpose-bound privacy policies where different use cases
+    (e.g., QA testing, ML training) can have different privacy budgets.
     """
 
     DEFAULT_CONFIG = {
         'global_epsilon': 1.0,
+        'purpose': 'general',  # Current purpose being used
+        'purposes': {},  # Purpose-specific epsilon mappings
         'columns': {}
     }
 
     REQUIRED_FIELDS = ['global_epsilon']
     VALID_METHODS = ['laplace', 'bounded_laplace', 'discrete_laplace', 'randomized_response']
+    
+    # Standard purpose definitions with recommended epsilon values
+    STANDARD_PURPOSES = {
+        'general': {
+            'epsilon': 1.0,
+            'description': 'General purpose anonymization',
+            'compliance_note': 'Standard privacy protection for general use cases'
+        },
+        'qa_testing': {
+            'epsilon': 1.5,
+            'description': 'QA testing and software development',
+            'compliance_note': 'Moderate privacy for testing scenarios requiring better utility'
+        },
+        'model_retraining': {
+            'epsilon': 0.5,
+            'description': 'Machine learning model training',
+            'compliance_note': 'Stricter privacy guarantees for ML training data'
+        },
+        'analytics': {
+            'epsilon': 0.8,
+            'description': 'Business analytics and reporting',
+            'compliance_note': 'Balanced privacy for analytical use cases'
+        },
+        'data_sharing': {
+            'epsilon': 0.3,
+            'description': 'External data sharing',
+            'compliance_note': 'Maximum privacy protection for data shared with third parties'
+        }
+    }
 
-    def __init__(self, config_path: Optional[str] = None):
+    def __init__(self, config_path: Optional[str] = None, purpose: Optional[str] = None):
         """
         Initialize config loader.
 
         Args:
             config_path: Path to YAML configuration file
+            purpose: Optional purpose to set immediately after loading
         """
         self.config_path = config_path
         self.config = self.DEFAULT_CONFIG.copy()
 
         if config_path and os.path.exists(config_path):
             self.load_config()
+        
+        # Set purpose if provided
+        if purpose:
+            self.set_purpose(purpose)
 
     def load_config(self) -> Dict[str, Any]:
         """
@@ -61,6 +102,11 @@ class ConfigLoader:
 
             # Validate and merge with defaults
             self.config = self._validate_and_merge_config(loaded_config)
+            
+            # If purpose is specified in config, apply it
+            if 'purpose' in self.config:
+                self.set_purpose(self.config['purpose'])
+            
             return self.config
 
         except FileNotFoundError:
@@ -95,11 +141,71 @@ class ConfigLoader:
         if not isinstance(global_epsilon, (int, float)) or global_epsilon <= 0:
             raise ValueError(f"global_epsilon must be a positive number, got: {global_epsilon}")
 
+        # Validate purpose if specified
+        if 'purpose' in loaded_config:
+            purpose = loaded_config['purpose']
+            if not isinstance(purpose, str):
+                raise ValueError(f"purpose must be a string, got: {type(purpose)}")
+            config['purpose'] = purpose
+
+        # Validate purposes dictionary if specified
+        if 'purposes' in loaded_config:
+            config['purposes'] = self._validate_purposes(loaded_config['purposes'])
+
         # Validate column configurations
         if 'columns' in loaded_config:
             config['columns'] = self._validate_column_configs(loaded_config['columns'])
 
         return config
+
+    def _validate_purposes(self, purposes: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Validate purpose-specific configurations.
+
+        Args:
+            purposes: Dictionary mapping purpose names to their configurations
+
+        Returns:
+            Validated purposes dictionary
+
+        Raises:
+            ValueError: If purpose configuration is invalid
+        """
+        validated_purposes = {}
+
+        for purpose_name, purpose_config in purposes.items():
+            if not isinstance(purpose_name, str):
+                raise ValueError(f"Purpose name must be a string, got: {type(purpose_name)}")
+
+            if not isinstance(purpose_config, dict):
+                raise ValueError(f"Purpose '{purpose_name}' configuration must be a dictionary")
+
+            validated_purpose = {}
+
+            # Validate epsilon for this purpose
+            epsilon = purpose_config.get('epsilon')
+            if epsilon is not None:
+                if not isinstance(epsilon, (int, float)) or epsilon <= 0:
+                    raise ValueError(f"epsilon for purpose '{purpose_name}' must be positive, got: {epsilon}")
+                validated_purpose['epsilon'] = float(epsilon)
+            else:
+                # Use standard purpose epsilon if available
+                if purpose_name in self.STANDARD_PURPOSES:
+                    validated_purpose['epsilon'] = self.STANDARD_PURPOSES[purpose_name]['epsilon']
+                else:
+                    # Fallback to global epsilon
+                    validated_purpose['epsilon'] = self.config.get('global_epsilon', 1.0)
+
+            # Store optional metadata
+            if 'description' in purpose_config:
+                validated_purpose['description'] = str(purpose_config['description'])
+            
+            if 'compliance_note' in purpose_config:
+                validated_purpose['compliance_note'] = str(purpose_config['compliance_note'])
+
+            validated_purposes[purpose_name] = validated_purpose
+
+        return validated_purposes
 
     def _validate_column_configs(self, column_configs: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -161,7 +267,7 @@ class ConfigLoader:
                     raise ValueError(f"sensitivity for column '{column_name}' must be positive, got: {sensitivity}")
                 validated_config['sensitivity'] = float(sensitivity)
 
-            # Validate mask_type for string columns (though we don't use method for strings yet)
+            # Validate mask_type for string columns
             mask_type = column_config.get('mask_type')
             if mask_type is not None:
                 valid_mask_types = ['partial', 'hash']
@@ -193,7 +299,9 @@ class ConfigLoader:
         # Return default config based on column type
         defaults = {
             'age': {'method': 'bounded_laplace', 'epsilon': 0.2, 'min': 18, 'max': 90},
+            'year': {'method': 'bounded_laplace', 'epsilon': 0.2, 'min': 1900, 'max': 2050},
             'monetary': {'method': 'laplace', 'epsilon': 0.3, 'sensitivity': 1000.0},
+            'numeric': {'method': 'laplace', 'epsilon': 0.3},
             'count': {'method': 'discrete_laplace', 'epsilon': 0.2},
             'boolean': {'method': 'randomized_response', 'epsilon': 0.5},
             'string': {'mask_type': 'partial'}
@@ -202,8 +310,119 @@ class ConfigLoader:
         return defaults.get(column_type, {'method': 'laplace', 'epsilon': 0.2}).copy()
 
     def get_global_epsilon(self) -> float:
-        """Get the global epsilon budget."""
+        """
+        Get the global epsilon budget.
+        
+        If a purpose is set and has a specific epsilon, returns that.
+        Otherwise returns the configured global_epsilon.
+        
+        Returns:
+            Current effective epsilon value
+        """
+        # If purpose is set and has specific epsilon, use that
+        current_purpose = self.get_current_purpose()
+        if current_purpose and current_purpose != 'general':
+            purpose_epsilon = self.get_epsilon_for_purpose(current_purpose)
+            if purpose_epsilon != self.config['global_epsilon']:
+                return purpose_epsilon
+        
         return self.config['global_epsilon']
+
+    def get_current_purpose(self) -> str:
+        """
+        Get the current purpose being used.
+        
+        Returns:
+            Purpose identifier string
+        """
+        return self.config.get('purpose', 'general')
+
+    def set_purpose(self, purpose: str):
+        """
+        Set the current purpose and update epsilon accordingly.
+        
+        Args:
+            purpose: Purpose identifier (e.g., 'qa_testing', 'model_retraining')
+        
+        Raises:
+            ValueError: If purpose is invalid
+        """
+        if not isinstance(purpose, str):
+            raise ValueError(f"Purpose must be a string, got: {type(purpose)}")
+        
+        self.config['purpose'] = purpose
+        
+        # Update global epsilon based on purpose if available
+        purpose_epsilon = self.get_epsilon_for_purpose(purpose)
+        if purpose_epsilon:
+            # Store original epsilon before purpose override
+            if 'original_epsilon' not in self.config:
+                self.config['original_epsilon'] = self.config['global_epsilon']
+            self.config['global_epsilon'] = purpose_epsilon
+
+    def get_epsilon_for_purpose(self, purpose: str) -> float:
+        """
+        Get epsilon value for a specific purpose.
+        
+        Args:
+            purpose: Purpose identifier (e.g., 'qa_testing', 'model_retraining')
+        
+        Returns:
+            Epsilon value for the purpose, or None if not found
+        """
+        # Check configured purposes first
+        if 'purposes' in self.config and purpose in self.config['purposes']:
+            return self.config['purposes'][purpose].get('epsilon', self.config['global_epsilon'])
+        
+        # Check standard purposes
+        if purpose in self.STANDARD_PURPOSES:
+            return self.STANDARD_PURPOSES[purpose]['epsilon']
+        
+        # Fallback to global epsilon
+        return self.config['global_epsilon']
+
+    def get_purpose_info(self, purpose: str) -> Dict[str, Any]:
+        """
+        Get complete information about a purpose.
+        
+        Args:
+            purpose: Purpose identifier
+        
+        Returns:
+            Dictionary with purpose information (epsilon, description, compliance_note)
+        """
+        # Check configured purposes first
+        if 'purposes' in self.config and purpose in self.config['purposes']:
+            return self.config['purposes'][purpose].copy()
+        
+        # Check standard purposes
+        if purpose in self.STANDARD_PURPOSES:
+            return self.STANDARD_PURPOSES[purpose].copy()
+        
+        # Return default info
+        return {
+            'epsilon': self.config['global_epsilon'],
+            'description': 'Custom purpose',
+            'compliance_note': 'No specific compliance notes'
+        }
+
+    def get_available_purposes(self) -> List[str]:
+        """
+        Get list of all available purposes.
+        
+        Returns:
+            List of purpose identifiers
+        """
+        purposes = set()
+        
+        # Add configured purposes
+        if 'purposes' in self.config:
+            purposes.update(self.config['purposes'].keys())
+        
+        # Add standard purposes
+        purposes.update(self.STANDARD_PURPOSES.keys())
+        
+        return sorted(list(purposes))
 
     def auto_assign_epsilon(self, columns: List[str]) -> Dict[str, Dict[str, Any]]:
         """
@@ -218,7 +437,7 @@ class ConfigLoader:
         if not columns:
             return {}
 
-        # Calculate equal epsilon split
+        # Calculate equal epsilon split using current effective epsilon
         num_columns = len(columns)
         epsilon_per_column = self.get_global_epsilon() / num_columns
 
@@ -243,4 +462,6 @@ class ConfigLoader:
 
     def __str__(self) -> str:
         """String representation of the configuration."""
-        return f"ConfigLoader(config_path='{self.config_path}', global_epsilon={self.get_global_epsilon()})"
+        purpose = self.get_current_purpose()
+        epsilon = self.get_global_epsilon()
+        return f"ConfigLoader(config_path='{self.config_path}', purpose='{purpose}', epsilon={epsilon})"

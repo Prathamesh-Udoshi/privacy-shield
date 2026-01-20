@@ -44,39 +44,73 @@ def main():
     """)
 
     # Sidebar for configuration
-    with st.sidebar:
-        st.header("⚙️ Configuration")
+    # In the sidebar, add purpose selection before epsilon slider
 
-        # Global epsilon slider
-        global_epsilon = st.slider(
-            "Global Privacy Budget (ε)",
-            min_value=0.1,
-            max_value=5.0,
-            value=1.0,
-            step=0.1,
-            help="Lower values provide stronger privacy protection but reduce utility"
-        )
+    with st.sidebar:
+      st.header("⚙️ Configuration")
+    
+    # Purpose selection
+      purpose_options = {
+        'general': {'epsilon': 1.0, 'description': 'General purpose anonymization'},
+        'qa_testing': {'epsilon': 1.5, 'description': 'QA testing and software development'},
+        'model_retraining': {'epsilon': 0.5, 'description': 'ML model training (stricter privacy)'},
+        'analytics': {'epsilon': 0.8, 'description': 'Business analytics and reporting'},
+        'data_sharing': {'epsilon': 0.3, 'description': 'External data sharing (maximum privacy)'}
+        }
+    
+      selected_purpose = st.selectbox(
+        "Data Purpose",
+        options=list(purpose_options.keys()),
+        format_func=lambda x: f"{x.replace('_', ' ').title()} (ε={purpose_options[x]['epsilon']})",
+        help="Select the purpose for which this data will be used. Different purposes require different privacy levels."
+      )
+    
+    # Show purpose description
+      st.caption(purpose_options[selected_purpose]['description'])
+    
+    # Global epsilon slider (now pre-filled based on purpose)
+      purpose_epsilon = purpose_options[selected_purpose]['epsilon']
+      global_epsilon = st.slider(
+        "Global Privacy Budget (ε)",
+        min_value=0.1,
+        max_value=5.0,
+        value=purpose_epsilon,
+        step=0.1,
+        help=f"Lower values provide stronger privacy protection but reduce utility. Recommended for {selected_purpose}: {purpose_epsilon}"
+      )
+    
+    # Show compliance note
+      with st.expander("📋 Compliance Information"):
+        st.info(f"""
+        **Purpose**: {selected_purpose.replace('_', ' ').title()}
+        
+        **Privacy Level**: {'High' if purpose_epsilon < 0.8 else 'Moderate' if purpose_epsilon < 1.5 else 'Standard'}
+        
+        **Compliance Note**: This anonymization is bound to the "{selected_purpose}" purpose. 
+        Using this data for other purposes may violate privacy regulations.
+        """)
 
         # File upload
-        st.header("📁 Upload Data")
-        uploaded_file = st.file_uploader(
+    st.header("📁 Upload Data")
+    uploaded_file = st.file_uploader(
             "Choose a CSV file",
-            type=['csv'],
+            type=['csv','excel'],
             help="Upload your CSV file to anonymize"
         )
 
         # Advanced options
-        with st.expander("Advanced Options"):
+    with st.expander("Advanced Options"):
             max_rows = st.number_input(
                 "Max rows to process",
                 min_value=1,
                 max_value=10000,
+                step=500,
                 value=1000,
                 help="Limit processing for large files (for testing)"
             )
 
         # Process button
-        process_button = st.button("🚀 Anonymize Data", type="primary", use_container_width=True)
+    process_button = st.button("🚀 Anonymize Data", type="primary", use_container_width=True)
 
     # Main content area
     if uploaded_file is not None:

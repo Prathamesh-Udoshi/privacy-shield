@@ -3,7 +3,7 @@ user_id,name,age,gender,location,purchase_amount,login_count,is_active,last_logi
 2,Bob Smith,34,Male,California,149.50,23,true,5
 3,Carol Williams,42,Female,Texas,599.99,67,false,30
 4,David Brown,25,Male,Florida,89.99,12,true,1
-5,Eve Davis,,Female,New York,399.99,89,true,3
+5,Eve Davis,31,Female,New York,399.99,89,true,
 6,Frank Miller,38,Male,California,249.99,34,false,45
 7,Grace Wilson,29,Female,Texas,179.99,56,true,7
 8,Henry Moore,45,Male,Florida,699.99,78,true,4
@@ -12,10 +12,10 @@ user_id,name,age,gender,location,purchase_amount,login_count,is_active,last_logi
 11,Kate Thomas,37,Female,Texas,279.99,62,true,8
 12,Liam Jackson,24,Male,Florida,199.99,29,true,2
 13,Mia White,41,Female,New York,499.99,91,true,1
-14,Noah Harris,30,Male,California,159.99,38,false,60
+14,Noah Harris,30,Male,California,159.99,38,false,
 15,Olivia Martin,35,Female,Texas,329.99,74,true,9
 16,Peter Thompson,27,Male,Florida,219.99,41,true,3
-17,Quinn Garcia,,Female,New York,649.99,85,false,35
+17,Quinn Garcia,26,Female,New York,649.99,85,false,35
 18,Ryan Martinez,32,Male,California,189.99,52,true,4
 19,Sarah Robinson,36,Female,Texas,269.99,69,true,10
 20,Tyler Clark,39,Male,Florida,379.99,83,true,5
@@ -48,4 +48,4 @@ user_id,name,age,gender,location,purchase_amount,login_count,is_active,last_logi
 47,Uma Collins,38,Female,Texas,339.99,66,true,10
 48,Vincent Stewart,43,Male,Florida,499.99,84,true,5
 49,Willow Sanchez,29,Female,New York,249.99,49,true,8
-50,Xander Morris,,Male,California,429.99,77,false,47
+50,Xander Morris,38,Male,California,429.99,77,false,47

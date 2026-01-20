@@ -169,10 +169,10 @@ def apply_anonymization(original_data: List[Dict[str, Any]],
         config_loader: Configuration loader
 
     Returns:
-        Tuple of (anonymized_data, privacy_budget, preprocessing_report)
+        Tuple of (anonymized_data, privacy_budget, preprocessing_report, preprocessed_data, column_types)
     """
     if not original_data:
-        return [], PrivacyBudget(config_loader.get_global_epsilon()), {}
+        return [], PrivacyBudget(config_loader.get_global_epsilon()), {}, [], {}
 
     headers = list(original_data[0].keys())
 
@@ -353,7 +353,13 @@ Examples:
   python privacyshield.py --input data.csv --output anon.csv --epsilon 0.5
         """
     )
-
+    
+    parser.add_argument(
+        '--purpose', '-p',
+        choices=['general', 'qa_testing', 'model_retraining', 'analytics', 'data_sharing'],
+        default='general',
+        help='Purpose for data anonymization (affects privacy budget)'
+    )
     parser.add_argument(
         '--input', '-i',
         required=True,
@@ -400,6 +406,16 @@ Examples:
         # Load configuration
         config_loader = ConfigLoader(args.config)
 
+        if args.purpose:
+            config_loader.config['purpose'] = args.purpose
+            
+            # Load purpose-specific epsilon if available
+            if 'purposes' in config_loader.config and args.purpose in config_loader.config['purposes']:
+                purpose_config = config_loader.config['purposes'][args.purpose]
+                config_loader.config['global_epsilon'] = purpose_config.get('epsilon', config_loader.get_global_epsilon())
+                print(f"Purpose: {args.purpose}")
+                print(f"Purpose-specific epsilon: {config_loader.get_global_epsilon()}")
+
         # Override epsilon if specified
         if args.epsilon is not None:
             config_loader.config['global_epsilon'] = args.epsilon
@@ -439,8 +455,6 @@ Examples:
         # Generate reports
         original_columns = preprocess_data(preprocessed_data)  # Use preprocessed data for fair comparison
         anonymized_columns = preprocess_data(anonymized_data)
-
-        # Column types are already inferred from preprocessed data above
 
         # Convert columns to appropriate types for utility analysis
         for header in headers:
