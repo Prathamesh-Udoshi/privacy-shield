@@ -6,6 +6,7 @@ preserves aggregate statistics while providing privacy.
 """
 
 import math
+import numpy as np
 from typing import List, Dict, Any, Tuple
 from statistics import mean, stdev
 
@@ -150,12 +151,24 @@ def generate_utility_report(original_data: Dict[str, List],
 
         original_vals = original_data[col]
         noisy_vals = noisy_data[col]
+        
+        # Filter to pairs where both values are valid numeric types
+        original_numeric = []
+        noisy_numeric = []
+        
+        for o, n in zip(original_vals, noisy_vals):
+            # Check if both can be treated as numbers
+            try:
+                o_val = float(o) if o is not None and str(o).strip() != '' else np.nan
+                n_val = float(n) if n is not None and str(n).strip() != '' else np.nan
+                
+                if not np.isnan(o_val) and not np.isnan(n_val):
+                    original_numeric.append(o_val)
+                    noisy_numeric.append(n_val)
+            except (ValueError, TypeError):
+                continue
 
-        # Filter to numeric values only
-        original_numeric = [v for v in original_vals if isinstance(v, (int, float)) and not math.isnan(v)]
-        noisy_numeric = [v for v in noisy_vals if isinstance(v, (int, float)) and not math.isnan(v)]
-
-        if len(original_numeric) < 2 or len(noisy_numeric) < 2:
+        if len(original_numeric) < 2:
             continue
 
         analyzed_columns += 1
@@ -214,3 +227,55 @@ def generate_utility_report(original_data: Dict[str, List],
         report_lines.append(f"  Interpretation: {interpretation}")
 
     return "\n".join(report_lines)
+
+
+def get_utility_metrics_data(original_data: Dict[str, List],
+                             noisy_data: Dict[str, List],
+                             numeric_columns: List[str]) -> List[Dict[str, Any]]:
+    """
+    Get raw utility metrics as a list of dictionaries for visualization.
+    """
+    results = []
+
+    for col in numeric_columns:
+        if col not in original_data or col not in noisy_data:
+            continue
+
+        original_vals = original_data[col]
+        noisy_vals = noisy_data[col]
+
+        # Filter to pairs where both values are valid numeric types
+        original_numeric = []
+        noisy_numeric = []
+        for o, n in zip(original_vals, noisy_vals):
+            try:
+                o_val = float(o) if o is not None and str(o).strip() != '' else np.nan
+                n_val = float(n) if n is not None and str(n).strip() != '' else np.nan
+                if not np.isnan(o_val) and not np.isnan(n_val):
+                    original_numeric.append(o_val)
+                    noisy_numeric.append(n_val)
+            except (ValueError, TypeError):
+                continue
+
+        if len(original_numeric) < 2:
+            continue
+
+        mean_metrics = calculate_mean_preservation(original_numeric, noisy_numeric)
+        std_metrics = calculate_std_dev_change(original_numeric, noisy_numeric)
+        mae = calculate_mean_absolute_error(original_numeric, noisy_numeric)
+
+        data_range = max(original_numeric) - min(original_numeric)
+        max_expected_error = data_range * 0.1 if data_range > 0 else 1.0
+        utility_score = calculate_utility_score(mean_metrics, std_metrics, mae, max_expected_error)
+
+        results.append({
+            'column': col,
+            'utility_score': utility_score,
+            'original_mean': mean_metrics['original_mean'],
+            'noisy_mean': mean_metrics['noisy_mean'],
+            'relative_error': mean_metrics['relative_error'] * 100,
+            'std_change_pct': std_metrics['percentage_change'],
+            'mae': mae
+        })
+
+    return results

@@ -35,7 +35,7 @@ class DPImputation:
         if u == 0:
             return 0.0
         # Apply inverse CDF
-        return (1.0 / scale) * math.copysign(1.0, u) * math.log(1.0 - 2.0 * abs(u))
+        return -scale * math.copysign(1.0, u) * math.log(1.0 - 2.0 * abs(u))
 
     def impute_numeric_column(self, values: List[Union[int, float, None]],
                             epsilon_budget: float) -> Tuple[List[Union[int, float]], Dict[str, Any]]:

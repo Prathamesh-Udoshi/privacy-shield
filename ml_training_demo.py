@@ -121,7 +121,7 @@ def demonstrate_ml_with_anonymized_data():
         target_data.append({target_column: row.get(target_column, None)})
 
     # Anonymize only the features
-    anonymized_features, budget = apply_anonymization(feature_data, config_loader)
+    anonymized_features, budget, _, _, _ = apply_anonymization(feature_data, config_loader)
 
     # Recombine with original target
     anonymized_data = []
@@ -134,8 +134,8 @@ def demonstrate_ml_with_anonymized_data():
     anonymized_df = pd.DataFrame(anonymized_data)
 
     print(f"Anonymized {len(anonymized_data)} records")
-    print(".3f")
-    print(".3f")
+    print(f"Privacy Budget Used: {budget.used_epsilon:.3f}")
+    print(f"Budget Utilization: {(budget.used_epsilon / budget.total_epsilon) * 100:.1f}%")
 
     # Prepare data for ML
     print("\nPreparing data for machine learning...")
@@ -169,9 +169,9 @@ def demonstrate_ml_with_anonymized_data():
         diff = abs(orig_acc - anon_acc)
 
         print(f"\n{model_name}:")
-        print(".3f")
-        print(".3f")
-        print(".3f")
+        print(f"  Original Accuracy:   {orig_acc:.3f}")
+        print(f"  Anonymized Accuracy: {anon_acc:.3f}")
+        print(f"  Accuracy Change:    {anon_acc - orig_acc:.3f}")
 
         if diff < 0.05:  # Less than 5% difference
             print("  Excellent: Minimal utility loss")

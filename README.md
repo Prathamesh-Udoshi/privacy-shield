@@ -30,7 +30,7 @@ In 2026, privacy regulations are strict - you cannot use real customer data for 
 Privacy Shield implements the **Laplace mechanism** manually (no external DP libraries):
 
 ```
-noise = (1/ε) × sign(u) × ln(1 - 2|u|)
+noise = -scale × sign(u) × ln(1 - 2|u|)
 ```
 
 Where:
@@ -50,11 +50,12 @@ Where:
 |-------------|----------|-------------|----------|
 | Age | Bounded Laplace | 1 | Personal ages (0-120) |
 | Year | Bounded Laplace | 1 | Years like model year, birth year |
-| Numeric | Laplace | 1 | Continuous measurements (engine size, emissions) |
-| Monetary | Scaled Laplace | max - min | Currency amounts |
-| Count | Discrete Laplace | 1 | Integer counts (cylinders, login attempts) |
+| Numeric | Laplace/Gaussian | 1| Continuous measurements |
+| Monetary | Scaled Laplace | range | Currency amounts |
+| Count | Discrete Laplace | 1 | Integer counts |
 | Boolean | Randomized Response | - | True/false flags |
-| String | No noise | - | Categorical data (names, categories) |
+| String | Masking/Hashing | - | Categorical identifiers |
+| High-Dim | Gaussian | - | (ε, δ)-DP for complex data |
 
 ### Intelligent Type Inference
 
@@ -277,10 +278,11 @@ Measures how well aggregate statistics are preserved:
 - **MAE**: Mean Absolute Error between original and noisy values
 
 ### Risk Assessment
-Heuristic estimate of re-identification risk:
-- **Uniqueness Reduction**: How much the data became less unique
-- **Risk Level**: LOW/MEDIUM/HIGH based on multiple factors
-- **K-Anonymity**: Estimated anonymity level
+A multi-layered evaluation of re-identification risk:
+- **Membership Inference Simulation**: A distance-based "linking attack" that measures how many anonymized records can be correctly matched to original identities.
+- **Uniqueness Reduction**: Measures how much the data entropy has increased.
+- **K-Anonymity**: Estimated anonymity level based on quasi-identifiers.
+- **Risk Level**: Labeled as LOW, MODERATE, or CRITICAL based on link success probability.
 
 ## 🛠️ Installation & Requirements
 
@@ -331,12 +333,13 @@ privacy_shield/
 ├── ml_training_demo.py  # ML training demonstration
 ├── .gitignore          # Git ignore rules
 ├── dp/
-│   ├── laplace.py       # Laplace noise implementation
+│   ├── laplace.py       # Vectorized Laplace mechanism
+│   ├── gaussian.py      # Gaussian mechanism for (ε, δ)-DP
 │   ├── budget.py        # Privacy budget tracking
-│   └── mechanisms.py    # Column-aware DP strategies
+│   └── mechanisms.py    # Vectorized DP strategies
 ├── metrics/
 │   ├── utility.py       # Statistical utility metrics
-│   └── risk.py          # Risk estimation heuristics
+│   └── risk.py          # Membership Inference Simulator
 ├── config/
 │   └── loader.py        # YAML configuration handling
 ├── examples/
@@ -358,7 +361,7 @@ privacy_shield/
 2. **Assumed sensitivities** - Uses rule-of-thumb sensitivities, not query-specific
 3. **No correlated columns** - Treats columns independently
 4. **String handling** - Basic masking, not formal DP for text
-5. **Heuristic risk assessment** - Risk metrics are estimates, not formal guarantees
+5. **Simulated Risk** - The Membership Inference score is a simulation, not a formal mathematical ceiling of risk.
 
 ### When NOT to Use
 - Production data processing

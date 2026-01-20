@@ -10,6 +10,7 @@ import argparse
 import csv
 import sys
 import os
+import numpy as np
 from typing import Dict, List, Any, Optional
 from pathlib import Path
 
@@ -270,7 +271,7 @@ def apply_anonymization(original_data: List[Dict[str, Any]],
     column_data = preprocess_data(preprocessed_data)  # Use preprocessed data
     anonymized_columns = {}
 
-    print("\nApplying differential privacy...")
+    print("\nApplying differential privacy using optimized vectorized engine...")
     for header in headers:
         col_type = column_types[header]
         config = column_configs[header]
@@ -298,42 +299,62 @@ def apply_anonymization(original_data: List[Dict[str, Any]],
             epsilon_consumed = True
 
         # Apply appropriate mechanism
-        anonymized_values = []
-        for value in original_values:
-            try:
-                # Convert string values to appropriate types
-                processed_value = value
+        original_column_values = column_data[header]
+        
+        # Pre-process the column to handle types (still needed before vectorization)
+        if col_type in ['age', 'year', 'monetary', 'numeric', 'count']:
+            processed_column = []
+            for value in original_column_values:
                 if value == '' or value is None:
-                    processed_value = None
-                elif col_type in ['age', 'year', 'monetary', 'numeric', 'count']:
-                    try:
-                        processed_value = float(value) if '.' in str(value) else int(value)
-                    except (ValueError, TypeError):
-                        processed_value = None
-                elif col_type == 'boolean':
-                    str_val = str(value).lower()
-                    if str_val in ['true', '1', 'yes']:
-                        processed_value = True
-                    elif str_val in ['false', '0', 'no']:
-                        processed_value = False
-                    else:
-                        processed_value = None
-
-                # Apply DP mechanism
-                if processed_value is not None:
-                    anonymized_value = mechanisms.apply_mechanism(
-                        header, processed_value, col_type, config
-                    )
+                    processed_column.append(np.nan)
                 else:
-                    anonymized_value = value  # Keep missing values as-is
+                    try:
+                        processed_column.append(float(value))
+                    except (ValueError, TypeError):
+                        processed_column.append(np.nan)
+            
+            # Apply mechanism vectorized
+            anonymized_values = mechanisms.apply_mechanism(header, processed_column, col_type, config)
+            # Handle NaNs (keep original missing values)
+            if isinstance(anonymized_values, np.ndarray):
+                # Convert back to list and replace NaNs with None or empty
+                final_values = []
+                for i, v in enumerate(anonymized_values):
+                    if np.isnan(processed_column[i]):
+                        final_values.append(original_column_values[i])
+                    else:
+                        final_values.append(v)
+                anonymized_columns[header] = final_values
+            else:
+                anonymized_columns[header] = anonymized_values
 
-                anonymized_values.append(anonymized_value)
+        elif col_type == 'boolean':
+            processed_column = []
+            for value in original_column_values:
+                str_val = str(value).lower()
+                if str_val in ['true', '1', 'yes']:
+                    processed_column.append(True)
+                elif str_val in ['false', '0', 'no']:
+                    processed_column.append(False)
+                else:
+                    processed_column.append(None)
+            
+            # Apply mechanism vectorized
+            anonymized_values = mechanisms.apply_mechanism(header, processed_column, col_type, config)
+            # Handle None (keep original missing values)
+            final_values = []
+            for i, v in enumerate(anonymized_values):
+                if processed_column[i] is None:
+                    final_values.append(original_column_values[i])
+                else:
+                    final_values.append(bool(v))
+            anonymized_columns[header] = final_values
 
-            except Exception as e:
-                print(f"    Warning: Failed to process value '{value}': {e}")
-                anonymized_values.append(value)  # Keep original on error
-
-        anonymized_columns[header] = anonymized_values
+        else:
+            # String or unknown, apply string masking (now also vectorized)
+            anonymized_columns[header] = mechanisms.apply_mechanism(
+                header, original_column_values, col_type, config
+            )
 
     # Convert back to list of dicts
     anonymized_data = convert_data_back(anonymized_columns)
@@ -466,8 +487,6 @@ Examples:
                     float(v) if v and str(v).replace('.', '').isdigit() else None
                     for v in original_columns[header]
                 ]
-                # Filter out None values
-                original_columns[header] = [v for v in original_columns[header] if v is not None]
 
             # Convert anonymized data - these should already be numeric but ensure they are
             if col_type in ['age', 'year', 'monetary', 'numeric', 'count']:
@@ -476,8 +495,6 @@ Examples:
                     (float(v) if v and str(v).replace('.', '').isdigit() else None)
                     for v in anonymized_columns[header]
                 ]
-                # Filter out None values
-                anonymized_columns[header] = [v for v in anonymized_columns[header] if v is not None]
 
         # Identify numeric columns for utility analysis
         numeric_columns = []

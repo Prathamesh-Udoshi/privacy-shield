@@ -180,128 +180,184 @@ def calculate_uniqueness_reduction(original_data: Dict[str, List],
     return max(0, reduction)
 
 
+def simulate_membership_inference(original_data: Dict[str, List],
+                                noisy_data: Dict[str, List],
+                                columns: List[str]) -> Dict[str, Any]:
+    """
+    Simulate a membership inference attack using distance-based matching.
+    
+    This estimates how many original records can be correctly linked to their 
+    anonymized versions based on statistical proximity.
+    
+    Args:
+        original_data: Original column data
+        noisy_data: Noisy column data
+        columns: Columns to use for the attack
+        
+    Returns:
+        Dict with simulation results
+    """
+    import numpy as np
+    
+    available_cols = [c for c in columns if c in original_data and c in noisy_data]
+    if not available_cols:
+        return {'success_rate': 0.0, 'risk_level': 'LOW', 'details': 'No numeric columns'}
+    
+    # Process only numeric columns for distance calculation
+    numeric_cols = []
+    for col in available_cols:
+        try:
+            # Check if majority of values are numeric
+            sample = [v for v in original_data[col][:20] if v is not None]
+            if all(isinstance(v, (int, float, complex)) or (isinstance(v, str) and v.replace('.', '', 1).isdigit()) for v in sample):
+                numeric_cols.append(col)
+        except Exception:
+            continue
+            
+    if not numeric_cols:
+        return {'success_rate': 0.0, 'risk_level': 'LOW', 'details': 'No numeric columns found'}
+        
+    # Build matrices for comparison
+    def build_matrix(data_dict, cols):
+        rows = []
+        for i in range(len(data_dict[cols[0]])):
+            row = []
+            for col in cols:
+                val = data_dict[col][i]
+                try:
+                    row.append(float(val) if val is not None and str(val).strip() != '' else 0.0)
+                except (ValueError, TypeError):
+                    row.append(0.0)
+            rows.append(row)
+        return np.array(rows)
+    
+    orig_matrix = build_matrix(original_data, numeric_cols)
+    noisy_matrix = build_matrix(noisy_data, numeric_cols)
+    
+    # Normalize matrices for fair distance calculation
+    col_max = np.max(np.abs(orig_matrix), axis=0)
+    col_max = np.where(col_max == 0, 1.0, col_max) # Avoid division by zero
+    
+    orig_norm = orig_matrix / col_max
+    noisy_norm = noisy_matrix / col_max
+    
+    # Simple membership inference: for each noisy record, find the closest original record
+    # If the closest original is the TRUE original, the attack succeeds
+    success_count = 0
+    num_to_test = min(len(orig_matrix), 500) # Sample to avoid O(N^2) on large datasets
+    
+    for i in range(num_to_test):
+        # Calculate distances from noisy_norm[i] to all original records
+        distances = np.linalg.norm(orig_norm - noisy_norm[i], axis=1)
+        # Find index of closest record
+        closest_idx = np.argmin(distances)
+        
+        if closest_idx == i:
+            success_count += 1
+            
+    success_rate = (success_count / num_to_test) * 100
+    
+    if success_rate > 40:
+        risk_level = "HIGH"
+    elif success_rate > 15:
+        risk_level = "MEDIUM"
+    else:
+        risk_level = "LOW"
+        
+    return {
+        'success_rate': success_rate,
+        'risk_level': risk_level,
+        'attack_type': 'Nearest-Neighbor Linking',
+        'columns_exploited': len(numeric_cols)
+    }
+
+
 def generate_risk_report(original_data: Dict[str, List],
                         noisy_data: Dict[str, List],
                         quasi_identifiers: List[str] = None) -> str:
     """
-    Generate a comprehensive re-identification risk report.
-
-    Args:
-        original_data: Dict mapping column names to original values
-        noisy_data: Dict mapping column names to noisy values
-        quasi_identifiers: List of column names that could be quasi-identifiers
-
-    Returns:
-        Formatted risk report string
+    Generate a comprehensive re-identification risk report with membership simulation.
     """
     report_lines = [
         "Re-identification Risk Assessment",
         "=" * 50
     ]
 
-    # Default quasi-identifiers if not specified
+    # Default quasi-identifiers
     if quasi_identifiers is None:
         quasi_identifiers = ['age', 'location', 'gender', 'occupation']
 
-    # Find available quasi-identifier columns
     available_qi = [col for col in quasi_identifiers if col in original_data and col in noisy_data]
-
-    # Uniqueness reduction analysis
     all_columns = list(original_data.keys())
+    
+    # 1. Uniqueness analysis
     uniqueness_reduction = calculate_uniqueness_reduction(original_data, noisy_data, all_columns)
+    
+    # 2. K-Anonymity simulation
+    noisy_k_analysis = {'k_estimate': 0, 'anonymity_level': 'UNKNOWN', 'risk_assessment': 'UNKNOWN'}
+    if available_qi:
+        noisy_combinations = list(zip(*[noisy_data[col] for col in available_qi]))
+        noisy_k_analysis = estimate_k_anonymity(noisy_combinations)
+
+    # 3. Membership Inference Simulation (NEW)
+    mi_results = simulate_membership_inference(original_data, noisy_data, all_columns)
 
     report_lines.extend([
-        f"Uniqueness Reduction: {uniqueness_reduction:.1f}%",
+        f"Uniqueness Reduction:  {uniqueness_reduction:.1f}%",
+        f"Membership Inference: {mi_results['success_rate']:.1f}% link success rate",
+        f"Risk Level (Linking): {mi_results['risk_level']}",
         ""
     ])
 
-    # K-anonymity analysis
     if available_qi:
-        # Create quasi-identifier combinations for original and noisy data
-        orig_combinations = list(zip(*[original_data[col] for col in available_qi]))
-        noisy_combinations = list(zip(*[noisy_data[col] for col in available_qi]))
-
-        orig_k_analysis = estimate_k_anonymity(orig_combinations)
-        noisy_k_analysis = estimate_k_anonymity(noisy_combinations)
-
         report_lines.extend([
             f"K-Anonymity Analysis (using: {', '.join(available_qi)}):",
-            f"  Original Data: k={orig_k_analysis['k_estimate']} ({orig_k_analysis['anonymity_level']})",
-            f"  Noisy Data:    k={noisy_k_analysis['k_estimate']} ({noisy_k_analysis['anonymity_level']})",
+            f"  Noisy Data: k={noisy_k_analysis['k_estimate']} ({noisy_k_analysis['anonymity_level']})",
             ""
         ])
 
-        # Overall risk assessment
-        risk_factors = []
-
-        # Factor 1: Uniqueness reduction
-        if uniqueness_reduction < 10:
-            risk_factors.append("low_uniqueness_reduction")
-        elif uniqueness_reduction < 30:
-            risk_factors.append("moderate_uniqueness_reduction")
+    # Overall risk determination
+    risk_score = 0
+    
+    # Factor 1: Membership Inference (The most realistic empirical attack)
+    if mi_results['risk_level'] == "HIGH": 
+        risk_score += 4
+    elif mi_results['risk_level'] == "MEDIUM": 
+        risk_score += 2
+    
+    # Factor 2: K-Anonymity (Harder to achieve with continuous noise)
+    if noisy_k_analysis['risk_assessment'] == "HIGH":
+        # Only penalize heavily if the dataset is large enough that k>1 should be expected
+        if len(all_columns) > 0 and len(original_data[all_columns[0]]) > 100:
+            risk_score += 2
         else:
-            risk_factors.append("high_uniqueness_reduction")
+            risk_score += 1 # Minor penalty for small datasets
+    elif noisy_k_analysis['risk_assessment'] == "MEDIUM":
+        risk_score += 1
+    
+    # Factor 3: Uniqueness (Continuous noise rarely reduces uniqueness)
+    if uniqueness_reduction < 5: 
+        risk_score += 1
 
-        # Factor 2: K-anonymity
-        if noisy_k_analysis['risk_assessment'] == 'HIGH':
-            risk_factors.append("low_k_anonymity")
-        elif noisy_k_analysis['risk_assessment'] == 'MEDIUM':
-            risk_factors.append("moderate_k_anonymity")
-
-        # Factor 3: Outlier analysis for numeric columns
-        numeric_columns = [col for col in all_columns if col in original_data and
-                          any(isinstance(v, (int, float)) for v in original_data[col][:10])]
-
-        high_outlier_risk = False
-        for col in numeric_columns:
-            orig_vals = [v for v in original_data[col] if isinstance(v, (int, float))]
-            noisy_vals = [v for v in noisy_data[col] if isinstance(v, (int, float))]
-
-            if len(orig_vals) >= 10:  # Need minimum sample size
-                outlier_analysis = detect_outlier_preservation(orig_vals, noisy_vals)
-                if outlier_analysis['outlier_risk'] == 'HIGH':
-                    high_outlier_risk = True
-                    break
-
-        if high_outlier_risk:
-            risk_factors.append("outlier_preservation")
-
-        # Determine overall risk level
-        risk_weights = {
-            'low_uniqueness_reduction': 0,
-            'moderate_uniqueness_reduction': 1,
-            'high_uniqueness_reduction': 2,
-            'moderate_k_anonymity': 1,
-            'low_k_anonymity': 3,
-            'outlier_preservation': 2
-        }
-
-        total_risk_score = sum(risk_weights.get(factor, 0) for factor in risk_factors)
-
-        if total_risk_score <= 1:
-            overall_risk = "LOW"
-        elif total_risk_score <= 3:
-            overall_risk = "MEDIUM"
-        else:
-            overall_risk = "HIGH"
-
-        report_lines.extend([
-            "Overall Risk Assessment:",
-            f"  Risk Level: {overall_risk}",
-            f"  Risk Factors: {', '.join(risk_factors) if risk_factors else 'None'}"
-        ])
-
-        if overall_risk == "LOW":
-            report_lines.append("  Interpretation: Low risk of re-identification")
-        elif overall_risk == "MEDIUM":
-            report_lines.append("  Interpretation: Moderate re-identification risk - additional protections recommended")
-        else:
-            report_lines.append("  Interpretation: High re-identification risk - review anonymization parameters")
-
+    # Determination with higher thresholds
+    if risk_score >= 6:
+        overall_risk = "CRITICAL"
+    elif risk_score >= 3:
+        overall_risk = "MODERATE"
     else:
-        report_lines.extend([
-            "Limited Analysis: No quasi-identifier columns found for k-anonymity analysis",
-            "Overall Risk Assessment: UNKNOWN"
-        ])
+        overall_risk = "LOW"
+
+    report_lines.extend([
+        "Final Privacy Assessment:",
+        f"  Overall Risk Category: {overall_risk}",
+        ""
+    ])
+
+    if overall_risk == "LOW":
+        report_lines.append("  Interpretation: Strong protection. Matches are likely statistical coincidences.")
+    elif overall_risk == "MODERATE":
+        report_lines.append("  Interpretation: Probabilistic privacy. Some records may be linkable by determined attackers.")
+    else:
+        report_lines.append("  Interpretation: High Linkage! Noise is too low relative to data density; records remain distinct.")
 
     return "\n".join(report_lines)

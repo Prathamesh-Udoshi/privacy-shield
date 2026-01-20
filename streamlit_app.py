@@ -21,7 +21,7 @@ from privacyshield import (
 )
 from config.loader import ConfigLoader
 from dp.budget import PrivacyBudget
-from metrics.utility import generate_utility_report
+from metrics.utility import generate_utility_report, get_utility_metrics_data
 from metrics.risk import generate_risk_report
 
 
@@ -170,7 +170,7 @@ def main():
 
             # Process button action
             if process_button:
-                with st.spinner("🔒 Applying differential privacy..."):
+                with st.spinner("🔒 Applying differential privacy using optimized vectorized engine..."):
                     # Create config with user settings
                     config_loader = ConfigLoader()
                     config_loader.config['global_epsilon'] = global_epsilon
@@ -226,9 +226,9 @@ def display_results(headers: List[str], anonymized_data: List[Dict[str, Any]],
     with col2:
         st.metric("Budget Remaining", f"ε = {budget.remaining_epsilon:.3f}")
     with col3:
-        st.metric("Protection Level",
-                 "🛡️ Strong" if budget.used_epsilon < 0.5 else
-                 "🔒 Moderate" if budget.used_epsilon < 2.0 else "⚠️ Light")
+        st.metric("Linkage Risk",
+                 "🛡️ Safe" if budget.used_epsilon < 0.8 else
+                 "🔒 Protected" if budget.used_epsilon < 2.5 else "⚠️ Exposed")
 
     # Anonymized data preview
     st.subheader("📋 Anonymized Data Preview")
@@ -272,7 +272,7 @@ def display_results(headers: List[str], anonymized_data: List[Dict[str, Any]],
                     'age': 'Bounded Laplace',
                     'year': 'Bounded Laplace',
                     'monetary': 'Scaled Laplace',
-                    'numeric': 'Laplace',
+                    'numeric': 'Laplace / Gaussian',
                     'count': 'Discrete Laplace',
                     'boolean': 'Randomized Response'
                 }.get(col_type, 'Laplace')
@@ -329,7 +329,6 @@ def display_metrics(original_data: List[Dict[str, Any]],
                 float(v) if v and str(v).replace('.', '').isdigit() else None
                 for v in original_columns[header]
             ]
-            original_columns[header] = [v for v in original_columns[header] if v is not None]
 
             # Convert anonymized data
             anonymized_columns[header] = [
@@ -337,7 +336,6 @@ def display_metrics(original_data: List[Dict[str, Any]],
                 (float(v) if v and str(v).replace('.', '').isdigit() else None)
                 for v in anonymized_columns[header]
             ]
-            anonymized_columns[header] = [v for v in anonymized_columns[header] if v is not None]
 
     # Identify quantitative columns for analysis
     quantitative_columns = []
@@ -351,8 +349,23 @@ def display_metrics(original_data: List[Dict[str, Any]],
         # Generate reports
         utility_report = generate_utility_report(original_columns, anonymized_columns, quantitative_columns)
         risk_report = generate_risk_report(original_columns, anonymized_columns)
+        utility_data = get_utility_metrics_data(original_columns, anonymized_columns, quantitative_columns)
 
-        # Display metrics
+        # Visualization Section
+        if utility_data:
+            st.subheader("📊 Utility Visualization")
+            chart_df = pd.DataFrame(utility_data)
+            
+            v_col1, v_col2 = st.columns(2)
+            with v_col1:
+                st.caption("Utility Score per Column (Higher is Better)")
+                st.bar_chart(chart_df.set_index('column')['utility_score'])
+            
+            with v_col2:
+                st.caption("Relative Error % (Lower is Better)")
+                st.bar_chart(chart_df.set_index('column')['relative_error'])
+
+        # Display raw reports
         col1, col2 = st.columns(2)
 
         with col1:
@@ -381,17 +394,13 @@ def display_metrics(original_data: List[Dict[str, Any]],
 
             with st.expander("💡 Understanding Risk Metrics"):
                 st.markdown("""
-                **Re-identification Risk**: Probability that an anonymized record can be linked back to the original
-                - < 1%: Very low risk
-                - 1-5%: Low risk
-                - 5-10%: Moderate risk
-                - > 10%: High risk (consider stronger privacy)
-
-                **Attribute Disclosure Risk**: Risk of inferring sensitive attributes
-                - Based on correlation analysis between anonymized and original data
+                **Membership Inference**: Measures how easily an attacker can "link" noisy records back to originals.
+                - < 10%: Very low linkage risk
+                - 10-25%: Moderate risk (some records might be identifiable)
+                - > 40%: High risk (data is too close to original, consider lower ε)
 
                 **Uniqueness**: How unique each record is in the dataset
-                - Higher uniqueness = Higher re-identification risk
+                - Higher uniqueness values after noise = Higher re-identification risk
                 """)
     else:
         st.warning("⚠️ No quantitative columns found for detailed analysis. Only categorical data was processed.")

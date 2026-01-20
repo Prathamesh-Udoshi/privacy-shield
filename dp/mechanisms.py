@@ -8,7 +8,8 @@ for various data types commonly found in user activity data.
 import math
 import random
 import warnings
-from typing import Union, Dict, Any, Optional
+import numpy as np
+from typing import Union, Dict, Any, Optional, List
 from .laplace import (
     add_laplace_noise,
     add_bounded_laplace_noise,
@@ -53,16 +54,9 @@ class DPMechanisms:
         """
         self.budget = budget
 
-    def apply_age_noise(self, value: Union[int, float], config: Dict[str, Any]) -> Union[int, float]:
+    def apply_age_noise(self, value: Any, config: Dict[str, Any]) -> Any:
         """
-        Apply bounded Laplace noise to age values.
-
-        Args:
-            value: Age value to anonymize
-            config: Configuration dict with epsilon, min, max
-
-        Returns:
-            Noisy age value clamped to valid range
+        Apply bounded Laplace noise to age values. Supports vectorized input.
         """
         epsilon = config.get('epsilon', 0.2)
         min_age = config.get('min', 0)
@@ -70,48 +64,33 @@ class DPMechanisms:
 
         return add_bounded_laplace_noise(
             value=value,
-            sensitivity=1.0,  # Age sensitivity is typically 1
+            sensitivity=1.0,
             epsilon=epsilon,
             min_val=min_age,
             max_val=max_age
         )
 
-    def apply_year_noise(self, value: Union[int, float], config: Dict[str, Any]) -> Union[int, float]:
+    def apply_year_noise(self, value: Any, config: Dict[str, Any]) -> Any:
         """
-        Apply bounded Laplace noise to year values (like model years).
-
-        Args:
-            value: Year value to anonymize
-            config: Configuration dict with epsilon, min, max
-
-        Returns:
-            Noisy year value clamped to valid range
+        Apply bounded Laplace noise to year values. Supports vectorized input.
         """
         epsilon = config.get('epsilon', 0.2)
-        min_year = config.get('min', 1900)  # Default to reasonable year range
+        min_year = config.get('min', 1900)
         max_year = config.get('max', 2050)
 
         return add_bounded_laplace_noise(
             value=value,
-            sensitivity=1.0,  # Year sensitivity is typically 1
+            sensitivity=1.0,
             epsilon=epsilon,
             min_val=min_year,
             max_val=max_year
         )
 
-    def apply_numeric_noise(self, value: Union[int, float], config: Dict[str, Any]) -> float:
+    def apply_numeric_noise(self, value: Any, config: Dict[str, Any]) -> Any:
         """
-        Apply Laplace noise to continuous numeric values (not monetary).
-
-        Args:
-            value: Numeric value to anonymize
-            config: Configuration dict with epsilon, sensitivity
-
-        Returns:
-            Noisy numeric value
+        Apply Laplace noise to continuous numeric values. Supports vectorized input.
         """
         epsilon = config.get('epsilon', 0.3)
-        # For continuous numeric values, use sensitivity of 1 (relative scale)
         sensitivity = config.get('sensitivity', 1.0)
 
         return add_laplace_noise(
@@ -120,19 +99,11 @@ class DPMechanisms:
             epsilon=epsilon
         )
 
-    def apply_monetary_noise(self, value: Union[int, float], config: Dict[str, Any]) -> float:
+    def apply_monetary_noise(self, value: Any, config: Dict[str, Any]) -> Any:
         """
-        Apply scaled Laplace noise to monetary values.
-
-        Args:
-            value: Monetary value to anonymize
-            config: Configuration dict with epsilon, sensitivity
-
-        Returns:
-            Noisy monetary value
+        Apply scaled Laplace noise to monetary values. Supports vectorized input.
         """
         epsilon = config.get('epsilon', 0.3)
-        # For monetary values, sensitivity depends on the scale
         sensitivity = config.get('sensitivity', 1000.0)
 
         return add_scaled_laplace_noise(
@@ -142,100 +113,62 @@ class DPMechanisms:
             scale_factor=1.0
         )
 
-    def apply_count_noise(self, value: Union[int, float], config: Dict[str, Any]) -> int:
+    def apply_count_noise(self, value: Any, config: Dict[str, Any]) -> Any:
         """
-        Apply discrete Laplace noise to count values.
-
-        Uses higher epsilon (less noise) to preserve count integrity since
-        counts are discrete integers that shouldn't change dramatically.
-
-        Args:
-            value: Count value to anonymize
-            config: Configuration dict with epsilon
-
-        Returns:
-            Noisy count value (integer)
+        Apply discrete Laplace noise to count values. Supports vectorized input.
         """
-        # Use higher epsilon for counts to reduce noise - counts are discrete
-        # and shouldn't change by large amounts
-        epsilon = config.get('epsilon', 1.0)  # Higher epsilon = less noise
+        epsilon = config.get('epsilon', 1.0)
 
         return add_discrete_laplace_noise(
-            value=int(value),
-            sensitivity=1,  # Count sensitivity is typically 1
+            value=value,
+            sensitivity=1,
             epsilon=epsilon
         )
 
-    def apply_boolean_noise(self, value: Union[bool, str, int], config: Dict[str, Any]) -> bool:
+    def apply_boolean_noise(self, value: Any, config: Dict[str, Any]) -> Any:
         """
-        Apply randomized response to boolean values.
-
-        For binary values, we use randomized response mechanism.
-
-        Args:
-            value: Boolean value to anonymize
-            config: Configuration dict with epsilon
-
-        Returns:
-            Noisy boolean value
+        Apply randomized response to boolean values. Supports vectorized input.
         """
         epsilon = config.get('epsilon', 0.5)
-
-        # Convert to boolean first
-        bool_value = bool(value) if isinstance(value, (int, str)) else value
-
-        # Randomized response: flip with probability p
-        # p = e^ε / (e^ε + 1) for ε-differential privacy
         p = math.exp(epsilon) / (math.exp(epsilon) + 1)
 
-        # With probability p, keep the true value; with probability 1-p, flip it
-        if random.random() < p:
-            return bool_value
+        if isinstance(value, (list, np.ndarray)):
+            arr = np.array(value, dtype=bool)
+            # Generate random mask: True with probability p
+            mask = np.random.random(len(arr)) < p
+            # Keep value where mask is True, flip where False
+            return np.where(mask, arr, ~arr)
         else:
-            return not bool_value
+            bool_value = bool(value) if isinstance(value, (int, str)) else value
+            if random.random() < p:
+                return bool_value
+            else:
+                return not bool_value
 
-    def apply_string_masking(self, value: str, config: Dict[str, Any]) -> str:
+    def apply_string_masking(self, value: Any, config: Dict[str, Any]) -> Any:
         """
-        Apply string masking/hashing for identifiers.
-
-        Note: This is not strictly DP, but provides basic anonymization
-        for string columns that don't have clear DP mechanisms.
-
-        Args:
-            value: String value to mask
-            config: Configuration dict
-
-        Returns:
-            Masked string value
+        Apply string masking/hashing. Vectorized helper for lists.
         """
+        if isinstance(value, (list, np.ndarray)):
+            return [self._mask_single_string(str(v), config) for v in value]
+        return self._mask_single_string(str(value), config)
+
+    def _mask_single_string(self, value: str, config: Dict[str, Any]) -> str:
+        """Internal helper for single string masking."""
         mask_type = config.get('mask_type', 'partial')
-
         if mask_type == 'partial':
-            # Keep first and last characters, mask middle
             if len(value) <= 2:
                 return '*' * len(value)
             return value[0] + '*' * (len(value) - 2) + value[-1]
         elif mask_type == 'hash':
-            # Simple hash-based masking (not cryptographically secure)
             import hashlib
             return hashlib.md5(value.encode()).hexdigest()[:8]
-        else:
-            # Default to partial masking
-            return self.apply_string_masking(value, {'mask_type': 'partial'})
+        return value
 
     def apply_mechanism(self, column_name: str, value: Any,
                        column_type: str, config: Dict[str, Any]) -> Any:
         """
-        Apply appropriate DP mechanism based on column type.
-
-        Args:
-            column_name: Name of the column
-            value: Value to anonymize
-            column_type: Inferred column type ('age', 'monetary', 'count', 'boolean', 'string')
-            config: Column-specific configuration
-
-        Returns:
-            Anonymized value
+        Apply appropriate DP mechanism. Now supports vectorized input natively.
         """
         try:
             if column_type == 'age':
@@ -253,10 +186,8 @@ class DPMechanisms:
             elif column_type == 'string':
                 return self.apply_string_masking(value, config)
             else:
-                # Default to no noise for unknown types
                 return value
-        except (ValueError, TypeError) as e:
-            # If noise application fails, return original value
+        except Exception as e:
             warnings.warn(f"Failed to apply DP to {column_name}: {e}. Using original value.")
             return value
 
