@@ -19,7 +19,7 @@ from privacyshield import read_csv_file, apply_anonymization
 from config.loader import ConfigLoader
 
 
-def prepare_data_for_ml(df, target_column='is_active'):
+def prepare_data_for_ml(df, target_column='ocean_proximity'):
     """
     Prepare data for machine learning by handling categorical variables
     and splitting features from target.
@@ -27,11 +27,13 @@ def prepare_data_for_ml(df, target_column='is_active'):
     # Make a copy to avoid modifying original
     df = df.copy()
 
-    # Handle categorical columns
+    # Handle categorical and boolean columns
     categorical_cols = []
     for col in df.columns:
-        if col != target_column and df[col].dtype == 'object':
-            categorical_cols.append(col)
+        if col != target_column:
+            # Check for strings OR booleans (which are common in DP data)
+            if df[col].dtype == 'object' or df[col].dtype == 'bool':
+                categorical_cols.append(col)
 
     # Label encode categorical variables
     label_encoders = {}
@@ -100,18 +102,18 @@ def demonstrate_ml_with_anonymized_data():
 
     # Load original data
     print("Loading original data...")
-    headers, original_data = read_csv_file('examples/users.csv')
+    headers, original_data = read_csv_file('examples/housing.csv')
 
     # Create config for anonymization - higher epsilon for better utility
     config_loader = ConfigLoader()
-    config_loader.config['global_epsilon'] = 5.0  # Higher epsilon = less noise, better utility
+    config_loader.config['global_epsilon'] = 10.0  # Higher epsilon = less noise, better utility
 
     # For ML training demo, we might keep target variable unchanged
     # but anonymize features only. This is a common practice.
     print("Applying differential privacy (keeping target variable unchanged for demo)...")
 
     # Separate target from features for this demo
-    target_column = 'is_active'
+    target_column = 'ocean_proximity'
     feature_data = []
     target_data = []
 
@@ -121,7 +123,7 @@ def demonstrate_ml_with_anonymized_data():
         target_data.append({target_column: row.get(target_column, None)})
 
     # Anonymize only the features
-    anonymized_features, budget, _, _, _ = apply_anonymization(feature_data, config_loader)
+    anonymized_features, budget, _, _, _, _ = apply_anonymization(feature_data, config_loader)
 
     # Recombine with original target
     anonymized_data = []
@@ -141,13 +143,13 @@ def demonstrate_ml_with_anonymized_data():
     print("\nPreparing data for machine learning...")
 
     # Original data preparation
-    X_orig, y_orig, _ = prepare_data_for_ml(original_df, 'is_active')
+    X_orig, y_orig, _ = prepare_data_for_ml(original_df, 'ocean_proximity')
     X_orig_train, X_orig_test, y_orig_train, y_orig_test = train_test_split(
         X_orig, y_orig, test_size=0.2, random_state=42
     )
 
     # Anonymized data preparation
-    X_anon, y_anon, _ = prepare_data_for_ml(anonymized_df, 'is_active')
+    X_anon, y_anon, _ = prepare_data_for_ml(anonymized_df, 'ocean_proximity')
     X_anon_train, X_anon_test, y_anon_train, y_anon_test = train_test_split(
         X_anon, y_anon, test_size=0.2, random_state=42
     )

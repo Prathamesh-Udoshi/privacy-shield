@@ -45,14 +45,16 @@ class DPMechanisms:
     Collection of differential privacy mechanisms for different column types.
     """
 
-    def __init__(self, budget: PrivacyBudget):
+    def __init__(self, budget: PrivacyBudget, metadata: Optional[Dict[str, Any]] = None):
         """
-        Initialize with a privacy budget.
+        Initialize with a privacy budget and optional column metadata.
 
         Args:
             budget: PrivacyBudget instance to track epsilon consumption
+            metadata: Map of column names to analysis metadata
         """
         self.budget = budget
+        self.metadata = metadata or {}
 
     def apply_age_noise(self, value: Any, config: Dict[str, Any]) -> Any:
         """
@@ -86,44 +88,82 @@ class DPMechanisms:
             max_val=max_year
         )
 
-    def apply_numeric_noise(self, value: Any, config: Dict[str, Any]) -> Any:
+    def apply_numeric_noise(self, value: Any, config: Dict[str, Any], column_name: str = "") -> Any:
         """
-        Apply Laplace noise to continuous numeric values. Supports vectorized input.
+        Apply Laplace noise with range-adjusted sensitivity.
         """
         epsilon = config.get('epsilon', 0.3)
-        sensitivity = config.get('sensitivity', 1.0)
+        
+        # Determine dynamic sensitivity based on range
+        default_sens = config.get('sensitivity', 1.0)
+        stats = self.metadata.get(column_name, {}).get('numeric_stats', {})
+        
+        # If we have a range, use it as sensitivity (clamped to prevent explosion)
+        discovered_range = stats.get('range', default_sens)
+        sensitivity = min(default_sens, discovered_range) if discovered_range > 0 else default_sens
 
-        return add_laplace_noise(
+        noisy = add_laplace_noise(
             value=value,
             sensitivity=sensitivity,
             epsilon=epsilon
         )
+        
+        # Smart clipping
+        if stats.get('all_non_negative', False):
+            if isinstance(noisy, np.ndarray):
+                return np.maximum(0, noisy)
+            return max(0.0, float(noisy))
+            
+        return noisy
 
-    def apply_monetary_noise(self, value: Any, config: Dict[str, Any]) -> Any:
+    def apply_monetary_noise(self, value: Any, config: Dict[str, Any], column_name: str = "") -> Any:
         """
-        Apply scaled Laplace noise to monetary values. Supports vectorized input.
+        Apply scaled Laplace noise with range-adjusted sensitivity.
         """
         epsilon = config.get('epsilon', 0.3)
-        sensitivity = config.get('sensitivity', 1000.0)
+        
+        # Large default sensitivity (1000) often destroys small financial data (like Titanic fares).
+        # We auto-scale to the discovered range if it's smaller.
+        default_sens = config.get('sensitivity', 1000.0)
+        stats = self.metadata.get(column_name, {}).get('numeric_stats', {})
+        
+        discovered_range = stats.get('range', default_sens)
+        sensitivity = min(default_sens, discovered_range) if discovered_range > 0 else default_sens
 
-        return add_scaled_laplace_noise(
+        noisy = add_scaled_laplace_noise(
             value=value,
             sensitivity=sensitivity,
             epsilon=epsilon,
             scale_factor=1.0
         )
+        
+        if stats.get('all_non_negative', False):
+            if isinstance(noisy, np.ndarray):
+                return np.maximum(0, noisy)
+            return max(0.0, float(noisy))
+            
+        return noisy
 
-    def apply_count_noise(self, value: Any, config: Dict[str, Any]) -> Any:
+    def apply_count_noise(self, value: Any, config: Dict[str, Any], column_name: str = "") -> Any:
         """
-        Apply discrete Laplace noise to count values. Supports vectorized input.
+        Apply discrete Laplace noise with non-negative protection for counts.
         """
         epsilon = config.get('epsilon', 1.0)
 
-        return add_discrete_laplace_noise(
+        noisy = add_discrete_laplace_noise(
             value=value,
             sensitivity=1,
             epsilon=epsilon
         )
+        
+        # Counts should almost always be non-negative
+        stats = self.metadata.get(column_name, {}).get('numeric_stats', {})
+        if stats.get('all_non_negative', True): # Default True for counts
+            if isinstance(noisy, np.ndarray):
+                return np.maximum(0, noisy)
+            return max(0, int(noisy))
+            
+        return noisy
 
     def apply_boolean_noise(self, value: Any, config: Dict[str, Any]) -> Any:
         """
@@ -154,19 +194,23 @@ class DPMechanisms:
         return self._mask_single_string(str(value), config)
 
     def _mask_single_string(self, value: str, config: Dict[str, Any]) -> str:
-        """Internal helper for single string masking."""
+        """Helper to mask a single string based on config."""
         mask_type = config.get('mask_type', 'partial')
-        if mask_type == 'partial':
-            if len(value) <= 2:
-                return '*' * len(value)
-            return value[0] + '*' * (len(value) - 2) + value[-1]
+        
+        if not value:
+            return value
+
+        if mask_type == 'full':
+            return "*" * 8
         elif mask_type == 'hash':
             import hashlib
-            return hashlib.md5(value.encode()).hexdigest()[:8]
-        return value
+            return hashlib.md5(value.encode()).hexdigest()[:12]
+        else: # partial
+            if len(value) <= 4:
+                return "*" * len(value)
+            return value[:2] + "*" * (len(value) - 4) + value[-2:]
 
-    def apply_mechanism(self, column_name: str, value: Any,
-                       column_type: str, config: Dict[str, Any]) -> Any:
+    def apply_mechanism(self, column_name: str, value: Any, column_type: str, config: Dict[str, Any]) -> Any:
         """
         Apply appropriate DP mechanism. Now supports vectorized input natively.
         """
@@ -176,13 +220,17 @@ class DPMechanisms:
             elif column_type == 'year':
                 return self.apply_year_noise(value, config)
             elif column_type == 'monetary':
-                return self.apply_monetary_noise(value, config)
+                return self.apply_monetary_noise(value, config, column_name)
             elif column_type == 'numeric':
-                return self.apply_numeric_noise(value, config)
+                return self.apply_numeric_noise(value, config, column_name)
             elif column_type == 'count':
-                return self.apply_count_noise(value, config)
+                return self.apply_count_noise(value, config, column_name)
             elif column_type == 'boolean':
                 return self.apply_boolean_noise(value, config)
+            elif column_type == 'id':
+                # Treat ID as a hashable string for privacy
+                config['mask_type'] = 'hash'
+                return self.apply_string_masking(value, config)
             elif column_type == 'string':
                 return self.apply_string_masking(value, config)
             else:
@@ -192,37 +240,31 @@ class DPMechanisms:
             return value
 
 
-def infer_column_type(column_name: str, sample_values: list) -> str:
+def infer_column_type(column_name: str, sample_values: list) -> tuple[str, dict]:
     """
-    Robustly infer column type based on statistical analysis of values,
-    with name-based hints as tie-breakers.
-
-    Args:
-        column_name: Name of the column
-        sample_values: List of sample values from the column
-
-    Returns:
-        Inferred column type: 'age', 'year', 'monetary', 'numeric', 'count', 'boolean', 'string'
+    Robustly infer column type and return metadata.
     """
     if not sample_values:
-        return 'string'
+        return 'string', {}
 
     column_name_lower = column_name.lower()
 
     # Clean and analyze the sample values
     cleaned_values = []
-    for val in sample_values[:200]:  # Use more samples for better analysis
+    for val in sample_values[:200]:
         if val is not None and str(val).strip() != '':
             cleaned_values.append(val)
 
     if not cleaned_values:
-        return 'string'
+        return 'string', {}
 
     # Analyze value types and patterns
     analysis = _analyze_value_patterns(cleaned_values)
 
     # Use statistical patterns to determine type
-    return _determine_type_from_analysis(column_name_lower, analysis)
+    col_type = _determine_type_from_analysis(column_name_lower, analysis)
+    
+    return col_type, analysis
 
 
 def _analyze_value_patterns(values: list) -> dict:
@@ -286,7 +328,8 @@ def _analyze_value_patterns(values: list) -> dict:
             'mean': sum(numeric_values) / len(numeric_values),
             'is_integer': all(v == int(v) for v in numeric_values),
             'range': max(numeric_values) - min(numeric_values),
-            'unique_ratio': len(set(numeric_values)) / len(numeric_values)
+            'unique_ratio': len(set(numeric_values)) / len(numeric_values),
+            'all_non_negative': all(v >= 0 for v in numeric_values)
         }
 
     return {
@@ -347,6 +390,7 @@ def _classify_numeric_type(column_name: str, stats: dict) -> str:
         'year': ['year'],
         'count': ['count', 'number', 'num_', 'total', 'cylinder', 'smog', 'level', 'login', 'visit', 'click', 'score'],
         'monetary': ['price', 'cost', 'salary', 'income', 'amount', 'purchase', 'payment'],
+        'id': ['id', 'guid', 'uid', 'identifier', 'key', 'index', 'pk'],
         'numeric': ['size', 'consumption', 'emission', 'co2', 'fuel', 'percentage', 'rate', 'ratio', 'co2_emissions']
     }
 
@@ -377,6 +421,8 @@ def _classify_numeric_type(column_name: str, stats: dict) -> str:
             # Low unique ratio, likely categories/counts
             return 'count'
         else:
+            if 'id' in column_name or 'pk' in column_name:
+                return 'id'
             # Large integers, likely counts or IDs
             return 'count'
     else:

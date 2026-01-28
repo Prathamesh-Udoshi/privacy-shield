@@ -44,12 +44,10 @@ def main():
     """)
 
     # Sidebar for configuration
-    # In the sidebar, add purpose selection before epsilon slider
-
     with st.sidebar:
       st.header("⚙️ Configuration")
     
-    # Purpose selection
+      # Purpose selection
       purpose_options = {
         'general': {'epsilon': 1.0, 'description': 'General purpose anonymization'},
         'qa_testing': {'epsilon': 1.5, 'description': 'QA testing and software development'},
@@ -65,10 +63,10 @@ def main():
         help="Select the purpose for which this data will be used. Different purposes require different privacy levels."
       )
     
-    # Show purpose description
+      # Show purpose description
       st.caption(purpose_options[selected_purpose]['description'])
     
-    # Global epsilon slider (now pre-filled based on purpose)
+      # Global epsilon slider
       purpose_epsilon = purpose_options[selected_purpose]['epsilon']
       global_epsilon = st.slider(
         "Global Privacy Budget (ε)",
@@ -79,7 +77,7 @@ def main():
         help=f"Lower values provide stronger privacy protection but reduce utility. Recommended for {selected_purpose}: {purpose_epsilon}"
       )
     
-    # Show compliance note
+      # Show compliance note
       with st.expander("📋 Compliance Information"):
         st.info(f"""
         **Purpose**: {selected_purpose.replace('_', ' ').title()}
@@ -90,7 +88,7 @@ def main():
         Using this data for other purposes may violate privacy regulations.
         """)
 
-        # File upload
+    # File upload
     st.header("📁 Upload Data")
     uploaded_file = st.file_uploader(
             "Choose a CSV file",
@@ -98,7 +96,7 @@ def main():
             help="Upload your CSV file to anonymize"
         )
 
-        # Advanced options
+    # Advanced options
     with st.expander("Advanced Options"):
             max_rows = st.number_input(
                 "Max rows to process",
@@ -109,7 +107,7 @@ def main():
                 help="Limit processing for large files (for testing)"
             )
 
-        # Process button
+    # Process button
     process_button = st.button("🚀 Anonymize Data", type="primary", use_container_width=True)
 
     # Main content area
@@ -133,7 +131,7 @@ def main():
 
             # Column type inference
             st.subheader("🔍 Column Type Detection")
-            column_types = infer_column_types(headers, data[:min(100, len(data))])
+            column_types, metadata = infer_column_types(headers, data[:min(100, len(data))])
 
             col1, col2 = st.columns(2)
 
@@ -144,7 +142,6 @@ def main():
                 if quantitative_cols:
                     for col in quantitative_cols:
                         col_type = column_types[col]
-                        # Add emoji indicators for different types
                         emoji = {
                             'age': '🎂',
                             'year': '📅',
@@ -163,7 +160,11 @@ def main():
                 if categorical_cols:
                     for col in categorical_cols:
                         col_type = column_types[col]
-                        emoji = '🏷️' if col_type == 'string' else '✅' if col_type == 'boolean' else '📝'
+                        emoji = {
+                            'string': '🏷️',
+                            'boolean': '✅',
+                            'id': '🆔'
+                        }.get(col_type, '📝')
                         st.write(f"{emoji} {col} ({col_type})")
                 else:
                     st.write("*All columns are quantitative*")
@@ -174,12 +175,20 @@ def main():
                     # Create config with user settings
                     config_loader = ConfigLoader()
                     config_loader.config['global_epsilon'] = global_epsilon
+                    
+                    # UI Notification for small datasets
+                    if len(data) < 500 and global_epsilon < 2.0:
+                        st.toast("⚠️ Small dataset detected! Auto-tuning epsilon to 4.0 for utility.", icon="⚡")
+                        st.warning(f"Small dataset alert: Since you have only {len(data)} rows, the standard privacy settings would be too aggressive. We've auto-adjusted for better accuracy.")
 
                     # Apply anonymization with preprocessing
-                    anonymized_data, budget, preprocessing_report, preprocessed_data, inferred_types = apply_anonymization(data, config_loader)
+                    anonymized_data, budget, pre_report, pre_data, col_types, ai_active = apply_anonymization(data, config_loader)
+
+                    # Generate risk report for the UI metric
+                    risk_report_str = generate_risk_report(preprocess_data(pre_data), preprocess_data(anonymized_data))
 
                     # Display results
-                    display_results(headers, anonymized_data, budget, preprocessed_data, inferred_types, preprocessing_report)
+                    display_results(headers, anonymized_data, budget, pre_data, col_types, pre_report, risk_report_str, ai_active)
 
         except Exception as e:
             st.error(f"Error processing file: {e}")
@@ -211,7 +220,8 @@ def main():
 
 def display_results(headers: List[str], anonymized_data: List[Dict[str, Any]],
                    budget: PrivacyBudget, original_data: List[Dict[str, Any]],
-                   column_types: Dict[str, str], preprocessing_report: Dict[str, Any] = None):
+                   column_types: Dict[str, str], preprocessing_report: Dict[str, Any] = None,
+                   risk_report_str: str = "", ai_active: bool = False):
     """Display anonymization results with explanations."""
 
     st.header("🎯 Anonymization Results")
@@ -220,23 +230,52 @@ def display_results(headers: List[str], anonymized_data: List[Dict[str, Any]],
     st.success(f"✅ Successfully anonymized {len(anonymized_data)} records!")
 
     # Privacy budget summary
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     with col1:
-        st.metric("Privacy Budget Used", f"ε = {budget.used_epsilon:.3f}")
+        st.metric("Final Privacy Budget", f"ε = {budget.used_epsilon:.3f}")
     with col2:
-        st.metric("Budget Remaining", f"ε = {budget.remaining_epsilon:.3f}")
+        # Determine risk label from the report string
+        risk_label = "⚠️ Exposed"
+        if "Overall Risk Category: LOW" in risk_report_str:
+            risk_label = "🛡️ Safe"
+        elif "Overall Risk Category: MODERATE" in risk_report_str:
+            risk_label = "🔒 Protected"
+            
+        st.metric("Linkage Risk", risk_label)
+        
     with col3:
-        st.metric("Linkage Risk",
-                 "🛡️ Safe" if budget.used_epsilon < 0.8 else
-                 "🔒 Protected" if budget.used_epsilon < 2.5 else "⚠️ Exposed")
+        detection_mode = "⚡ AI Enhanced" if ai_active else "🔍 Heuristic"
+        st.metric("Detection Mode", detection_mode)
+        
+    with col4:
+        st.metric("Data Size", f"{len(anonymized_data)} Rows")
+
+    # Impact Viewer: Side-by-side comparison
+    st.subheader("🔍 Privacy Impact Viewer (Row-by-Row)")
+    
+    # Select first few rows for comparison
+    num_comp = min(5, len(anonymized_data))
+    
+    orig_comp = pd.DataFrame(original_data[:num_comp])
+    anon_comp = pd.DataFrame(anonymized_data[:num_comp])
+    
+    for i in range(num_comp):
+        with st.expander(f"Row {i+1} Comparison", expanded=(i==0)):
+            r_col1, r_col2 = st.columns(2)
+            with r_col1:
+                st.caption("Original Data")
+                st.json(original_data[i])
+            with r_col2:
+                st.caption("Anonymized Data (with Noise)")
+                st.json(anonymized_data[i])
 
     # Anonymized data preview
-    st.subheader("📋 Anonymized Data Preview")
-    df_anonymized = pd.DataFrame(anonymized_data[:10])  # Show first 10 rows
+    st.subheader("📋 Full Anonymized Preview")
+    df_anonymized = pd.DataFrame(anonymized_data[:20])  # Show more rows
     st.dataframe(df_anonymized, use_container_width=True)
 
-    if len(anonymized_data) > 10:
-        st.caption(f"Showing first 10 of {len(anonymized_data)} anonymized rows")
+    if len(anonymized_data) > 20:
+        st.caption(f"Showing first 20 of {len(anonymized_data)} anonymized rows")
 
     # Display preprocessing report
     if preprocessing_report:
@@ -306,12 +345,13 @@ def display_results(headers: List[str], anonymized_data: List[Dict[str, Any]],
                 """)
 
     # Metrics and analysis
-    display_metrics(original_data, anonymized_data, column_types)
+    display_metrics(original_data, anonymized_data, column_types, risk_report_str)
 
 
 def display_metrics(original_data: List[Dict[str, Any]],
                    anonymized_data: List[Dict[str, Any]],
-                   column_types: Dict[str, str]):
+                   column_types: Dict[str, str],
+                   risk_report_str: str = ""):
     """Display utility and risk metrics with explanations."""
 
     st.header("📊 Privacy vs. Utility Analysis")
@@ -348,7 +388,7 @@ def display_metrics(original_data: List[Dict[str, Any]],
     if quantitative_columns:
         # Generate reports
         utility_report = generate_utility_report(original_columns, anonymized_columns, quantitative_columns)
-        risk_report = generate_risk_report(original_columns, anonymized_columns)
+        risk_report = risk_report_str if risk_report_str else generate_risk_report(original_columns, anonymized_columns)
         utility_data = get_utility_metrics_data(original_columns, anonymized_columns, quantitative_columns)
 
         # Visualization Section

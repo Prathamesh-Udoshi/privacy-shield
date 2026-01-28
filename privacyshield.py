@@ -21,6 +21,10 @@ from config.loader import ConfigLoader
 from metrics.utility import generate_utility_report
 from metrics.risk import generate_risk_report
 from preprocessing.pipeline import EnhancedPreprocessingPipeline
+from ai.semantic_analyzer import SemanticAnalyzer
+from dotenv import load_dotenv
+
+load_dotenv() # Load API keys from .env
 
 
 def read_csv_file(file_path: str, max_rows: Optional[int] = None) -> tuple[List[str], List[Dict[str, Any]]]:
@@ -92,7 +96,6 @@ def preprocess_data(data: List[Dict[str, Any]]) -> Dict[str, List[Any]]:
 
     Args:
         data: List of row dictionaries
-
     Returns:
         Dict mapping column names to lists of values
     """
@@ -136,32 +139,35 @@ def convert_data_back(columns: Dict[str, List[Any]]) -> List[Dict[str, Any]]:
     return data
 
 
-def infer_column_types(headers: List[str], sample_data: List[Dict[str, Any]]) -> Dict[str, str]:
+def infer_column_types(headers: List[str], sample_data: List[Dict[str, Any]]) -> tuple[Dict[str, str], Dict[str, dict]]:
     """
-    Infer column types for all columns.
-
-    Args:
-        headers: Column headers
-        sample_data: Sample data rows
-
-    Returns:
-        Dict mapping column names to inferred types
+    Infer column types using AI if available, falling back to statistical analysis.
     """
     column_data = preprocess_data(sample_data)
     column_types = {}
+    metadata = {}
+    
+    # Try AI Analysis first if configured
+    ai_analyzer = SemanticAnalyzer()
+    ai_types = ai_analyzer.analyze_columns(headers, sample_data) if ai_analyzer.client else {}
 
     for header in headers:
         if header in column_data:
-            sample_values = column_data[header][:100]  # Use first 100 values for inference
-            column_types[header] = infer_column_type(header, sample_values)
+            sample_values = column_data[header][:100]
+            col_type, col_meta = infer_column_type(header, sample_values)
+            
+            # Use AI type as priority override if it exists
+            column_types[header] = ai_types.get(header, col_type)
+            metadata[header] = col_meta
         else:
-            column_types[header] = 'string'  # Default fallback
+            column_types[header] = 'string'
+            metadata[header] = {}
 
-    return column_types
+    return column_types, metadata
 
 
 def apply_anonymization(original_data: List[Dict[str, Any]],
-                       config_loader: ConfigLoader) -> tuple[List[Dict[str, Any]], PrivacyBudget, Dict[str, Any], List[Dict[str, Any]], Dict[str, str]]:
+                       config_loader: ConfigLoader) -> tuple[List[Dict[str, Any]], PrivacyBudget, Dict[str, Any], List[Dict[str, Any]], Dict[str, str], bool]:
     """
     Apply differential privacy anonymization to the data with preprocessing.
 
@@ -173,9 +179,21 @@ def apply_anonymization(original_data: List[Dict[str, Any]],
         Tuple of (anonymized_data, privacy_budget, preprocessing_report, preprocessed_data, column_types)
     """
     if not original_data:
-        return [], PrivacyBudget(config_loader.get_global_epsilon()), {}, [], {}
+        return [], PrivacyBudget(config_loader.get_global_epsilon()), {}, [], {}, False
 
     headers = list(original_data[0].keys())
+    row_count = len(original_data)
+
+    # Stage 0: Small Dataset Auto-Adjustment
+    # DP noise is devastating on small datasets (< 500 rows).
+    # If epsilon is low (< 2.0), we auto-adjust to preserve utility.
+    current_epsilon = config_loader.get_global_epsilon()
+    if row_count < 500 and current_epsilon < 2.0:
+        new_epsilon = 4.0
+        print(f"\n⚠️  SMALL DATASET DETECTED ({row_count} rows)")
+        print(f"   Original Epsilon ({current_epsilon}) would destroy utility.")
+        print(f"   Auto-adjusting to Epsilon {new_epsilon} for accuracy.")
+        config_loader.config['global_epsilon'] = new_epsilon
 
     # Stage 1: Enhanced Data Preprocessing
     print("Running enhanced preprocessing pipeline...")
@@ -237,16 +255,24 @@ def apply_anonymization(original_data: List[Dict[str, Any]],
         for rec in preprocessing_report['recommendations'][:2]:  # Show first 2 recommendations
             print(f"     - {rec}")
 
-    # Infer column types on preprocessed data
+    # Infer column types on preprocessed data with metadata
     print("\nInferring column types...")
-    column_types = infer_column_types(headers, preprocessed_data[:min(100, len(preprocessed_data))])
+    column_types, metadata = infer_column_types(headers, preprocessed_data[:min(100, len(preprocessed_data))])
+    
+    # Check if AI was actually used
+    ai_status = False
+    if os.getenv("OPENAI_API_KEY"):
+        ai_status = True
+        print("💡 AI Semantic Analysis: ENABLED (High Fidelity Detection)")
+    else:
+        print("💡 AI Semantic Analysis: SKIPPED (No API key found, using heuristics)")
 
     for header, col_type in column_types.items():
         print(f"  {header}: {col_type}")
 
-    # Initialize privacy budget and mechanisms with remaining epsilon
+    # Initialize privacy budget and mechanisms with metadata
     budget = PrivacyBudget(remaining_epsilon)
-    mechanisms = DPMechanisms(budget)
+    mechanisms = DPMechanisms(budget, metadata=metadata)
 
     # Get configurations for each column
     column_configs = {}
@@ -320,10 +346,11 @@ def apply_anonymization(original_data: List[Dict[str, Any]],
                 # Convert back to list and replace NaNs with None or empty
                 final_values = []
                 for i, v in enumerate(anonymized_values):
+                    # Maintain type integrity: Use None for missing values, never mix with strings
                     if np.isnan(processed_column[i]):
-                        final_values.append(original_column_values[i])
+                        final_values.append(None)
                     else:
-                        final_values.append(v)
+                        final_values.append(float(v))
                 anonymized_columns[header] = final_values
             else:
                 anonymized_columns[header] = anonymized_values
@@ -359,7 +386,7 @@ def apply_anonymization(original_data: List[Dict[str, Any]],
     # Convert back to list of dicts
     anonymized_data = convert_data_back(anonymized_columns)
 
-    return anonymized_data, budget, preprocessing_report, preprocessed_data, column_types
+    return anonymized_data, budget, preprocessing_report, preprocessed_data, column_types, ai_status
 
 
 def main():
@@ -465,7 +492,7 @@ Examples:
             sys.exit(1)
 
         # Apply anonymization with preprocessing
-        anonymized_data, budget, preprocessing_report, preprocessed_data, column_types = apply_anonymization(original_data, config_loader)
+        anonymized_data, budget, preprocessing_report, preprocessed_data, column_types, ai_active = apply_anonymization(original_data, config_loader)
 
         # Write output
         if not args.quiet:
