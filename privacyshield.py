@@ -167,7 +167,8 @@ def infer_column_types(headers: List[str], sample_data: List[Dict[str, Any]]) ->
 
 
 def apply_anonymization(original_data: List[Dict[str, Any]],
-                       config_loader: ConfigLoader) -> tuple[List[Dict[str, Any]], PrivacyBudget, Dict[str, Any], List[Dict[str, Any]], Dict[str, str], bool]:
+                       config_loader: ConfigLoader,
+                       excluded_columns: Optional[List[str]] = None) -> tuple[List[Dict[str, Any]], PrivacyBudget, Dict[str, Any], List[Dict[str, Any]], Dict[str, str], bool]:
     """
     Apply differential privacy anonymization to the data with preprocessing.
 
@@ -299,6 +300,11 @@ def apply_anonymization(original_data: List[Dict[str, Any]],
 
     print("\nApplying differential privacy using optimized vectorized engine...")
     for header in headers:
+        if excluded_columns and header in excluded_columns:
+            print(f"  Skipping {header} (Excluded as Target/Ground Truth)")
+            anonymized_columns[header] = column_data[header]
+            continue
+            
         col_type = column_types[header]
         config = column_configs[header]
         original_values = column_data[header]
@@ -443,6 +449,8 @@ Examples:
         help='Suppress progress output'
     )
 
+    parser.add_argument('--exclude', nargs='+', help='Columns to exclude from noise (e.g., Target labels)')
+
     args = parser.parse_args()
 
     try:
@@ -492,7 +500,9 @@ Examples:
             sys.exit(1)
 
         # Apply anonymization with preprocessing
-        anonymized_data, budget, preprocessing_report, preprocessed_data, column_types, ai_active = apply_anonymization(original_data, config_loader)
+        anonymized_data, budget, preprocessing_report, preprocessed_data, column_types, ai_active = apply_anonymization(
+            original_data, config_loader, excluded_columns=args.exclude
+        )
 
         # Write output
         if not args.quiet:

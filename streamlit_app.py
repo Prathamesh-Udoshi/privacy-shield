@@ -169,6 +169,15 @@ def main():
                 else:
                     st.write("*All columns are quantitative*")
 
+            # Target Variable Exclusion Selection
+            st.markdown("---")
+            st.subheader("🎯 Ground Truth Protection")
+            exclude_list = st.multiselect(
+                "Exclude target columns from noise?", 
+                headers, 
+                help="Select columns like 'Survived' or 'Price' that should remain 100% accurate for ML training."
+            )
+
             # Process button action
             if process_button:
                 with st.spinner("🔒 Applying differential privacy using optimized vectorized engine..."):
@@ -182,7 +191,9 @@ def main():
                         st.warning(f"Small dataset alert: Since you have only {len(data)} rows, the standard privacy settings would be too aggressive. We've auto-adjusted for better accuracy.")
 
                     # Apply anonymization with preprocessing
-                    anonymized_data, budget, pre_report, pre_data, col_types, ai_active = apply_anonymization(data, config_loader)
+                    anonymized_data, budget, pre_report, pre_data, col_types, ai_active = apply_anonymization(
+                        data, config_loader, excluded_columns=exclude_list
+                    )
 
                     # Generate risk report for the UI metric
                     risk_report_str = generate_risk_report(preprocess_data(pre_data), preprocess_data(anonymized_data))
