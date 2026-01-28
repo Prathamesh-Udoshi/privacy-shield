@@ -16,13 +16,12 @@ Differential privacy is a mathematical framework for protecting individual priva
 
 In 2026, privacy regulations are strict - you cannot use real customer data for testing, development, or analytics. Privacy Shield helps by:
 
-- **Anonymizing data**: Making individual records unidentifiable through mathematical guarantees
-- **Preserving statistics**: Keeping aggregate insights (means, distributions) approximately intact
-- **Intelligent analysis**: Automatically understands any CSV file structure and data types
-- **Web interface**: User-friendly application for non-technical users
-- **ML-ready output**: Anonymized data suitable for machine learning training
-- **Being auditable**: Every privacy decision is transparent and configurable
-- **Being lightweight**: No heavy ML libraries or cloud dependencies required
+- **Anonymizing data**: Making individual records unidentifiable through mathematical guarantees.
+- **Preserving statistics**: Keeping aggregate insights (means, distributions) approximately intact through **Smart Sensitivity Scaling**.
+- **AI-Enhanced Analysis**: Uses OpenAI GPT models to semantically understand complex datasets and sensitive columns.
+- **Small Dataset Protection**: Automatically tunes privacy parameters for small samples (Iris/Titanic) to prevent data destruction.
+- **Web interface**: User-friendly application with side-by-side **Privacy Impact Viewers**.
+- **ML-ready output**: Consistent type-safe output ensured for seamless model retraining and deployment.
 
 ## 📊 How It Works
 
@@ -48,39 +47,26 @@ Where:
 
 | Column Type | Strategy | Sensitivity | Use Case |
 |-------------|----------|-------------|----------|
-| Age | Bounded Laplace | 1 | Personal ages (0-120) |
-| Year | Bounded Laplace | 1 | Years like model year, birth year |
-| Numeric | Laplace/Gaussian | 1| Continuous measurements |
-| Monetary | Scaled Laplace | range | Currency amounts |
+| Age | Bounded Laplace | range-capped | Personal ages (0-120) |
+| Year | Bounded Laplace | range-capped | Years like model year, birth year |
+| Numeric | Laplace/Gaussian | range-capped | Continuous measurements |
+| Monetary | Scaled Laplace | range-capped | Currency amounts (Auto-scaled) |
 | Count | Discrete Laplace | 1 | Integer counts |
 | Boolean | Randomized Response | - | True/false flags |
-| String | Masking/Hashing | - | Categorical identifiers |
-| High-Dim | Gaussian | - | (ε, δ)-DP for complex data |
+| ID / PK | MD5/SHA Hashing | - | Persistent identifiers (PassengerId, UID) |
+| String | Masking/Hashing | - | Categorical data & PII |
 
-### Intelligent Type Inference
+### 🤖 AI Semantic Analysis (NEW)
 
-Privacy Shield uses **statistical analysis** to automatically detect column types from any CSV file:
+Privacy Shield now integrates with **OpenAI's GPT models** to provide high-fidelity data categorization.
+- **How to use**: Add `OPENAI_API_KEY` to your `.env` file.
+- **Benefit**: AI can identify columns like `Val_A` as internal IDs or `Amount_3` as currency, even when headers are cryptic. It acts as a high-priority override for our heuristic engine.
 
-**How It Works:**
-1. **Value Pattern Analysis**: Examines data distributions, ranges, and uniqueness
-2. **Type Classification**: Applies statistical rules for each data pattern
-3. **Name-Based Hints**: Uses column names for tie-breaking decisions
-4. **Word Boundaries**: Avoids substring matching issues (e.g., 'age' in 'percentage')
+### ⚡ Smart Sensitivity & Small Data Safeguards
 
-**Supported Detection Patterns:**
-- **Integer Ranges**: Age (0-150), Years (1900-2100), Counts (0-∞)
-- **Float Patterns**: Continuous measurements, percentages, rates
-- **Boolean Values**: true/false, 1/0, yes/no variations
-- **Categorical Data**: String uniqueness and frequency analysis
-
-**Example Inference Results:**
-```
-Input: [25, 30, 45, 67, 12] → age (bounded, personal)
-Input: [2020, 2019, 2021] → year (bounded, temporal)
-Input: [2.5, 3.5, 2.0, 1.8] → numeric (continuous measurements)
-Input: [4, 6, 8, 4, 6] → count (discrete integers)
-Input: ['true', 'false', 'true'] → boolean (binary flags)
-```
+1. **Range-Adaptive Noise**: The tool pre-scans data ranges to scale noise. This prevents "Small Value Vaporization" (e.g., preventing a $7 fare from becoming $8000).
+2. **Auto-Epsilon Tuning**: For datasets with **< 500 rows**, the tool automatically increases the privacy budget (typically to ε=4.0) to ensure the resulting data remains statistically useful.
+3. **Non-Negative Constraints**: Automatically detects and enforces boundaries for measurements that can never be negative (Age, Price, Count).
 
 ## 🚀 Quick Start
 
@@ -168,13 +154,11 @@ streamlit run streamlit_app.py
 ```
 
 ### Web Interface Features
-- **📁 Drag & Drop CSV Upload**: Upload any CSV file directly
-- **🔍 Automatic Type Detection**: Intelligent column type inference
-- **⚙️ Interactive Controls**: Adjust privacy parameters with sliders
-- **📊 Live Preview**: See anonymized data before downloading
-- **📚 Detailed Explanations**: Understand what each privacy mechanism does
-- **📈 Privacy & Utility Reports**: Comprehensive analysis with visual indicators
-- **💾 One-Click Download**: Get your anonymized CSV instantly
+- **🆔 ID Handling**: Automatic detection and hashing of primary keys/identifiers.
+- **🔍 Privacy Impact Viewer**: Side-by-side row-level comparison of Original vs. Noisy data.
+- **⚡ AI Status Dashboard**: Real-time indicator showing if OpenAI-powered detection is active.
+- **📊 Robust Analysis**: Empirical risk scores calculated through membership inference simulations.
+- **💾 Type-Safe Download**: Guaranteed numeric consistency for immediate ML use.
 
 ### Web Interface Workflow
 1. **Upload CSV** → Automatic column analysis
@@ -330,13 +314,16 @@ scikit-learn>=1.3.0
 privacy_shield/
 ├── streamlit_app.py     # Web-based interface
 ├── privacyshield.py     # Main CLI tool
-├── ml_training_demo.py  # ML training demonstration
-├── .gitignore          # Git ignore rules
+├── ml_training_demo.py  # ML training demonstration (Titanic/Housing support)
+├── requirements.txt     # Project dependencies
+├── .env                 # API Key storage (Copy .env.example)
+├── ai/
+│   └── semantic_analyzer.py # OpenAI-powered semantic engine
 ├── dp/
 │   ├── laplace.py       # Vectorized Laplace mechanism
 │   ├── gaussian.py      # Gaussian mechanism for (ε, δ)-DP
 │   ├── budget.py        # Privacy budget tracking
-│   └── mechanisms.py    # Vectorized DP strategies
+│   └── mechanisms.py    # Range-Adaptive DP strategies
 ├── metrics/
 │   ├── utility.py       # Statistical utility metrics
 │   └── risk.py          # Membership Inference Simulator
@@ -344,6 +331,7 @@ privacy_shield/
 │   └── loader.py        # YAML configuration handling
 ├── examples/
 │   ├── users.csv        # Sample dataset
+│   ├── housing.csv      # Large-scale ML dataset
 │   └── policy.yaml      # Sample configuration
 └── README.md
 ```
