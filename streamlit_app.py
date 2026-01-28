@@ -349,10 +349,13 @@ def display_results(headers: List[str], anonymized_data: List[Dict[str, Any]],
                 - Trade-off: Some accuracy lost for privacy protection
                 """)
             else:
+                mechanism = "Hashing/Masking" if col_type == 'id' else "Category Swapping / Hashing"
+                description = "• Deterministic hashing for identifiers" if col_type == 'id' else "• Randomly swaps categories or hashes values"
+
                 st.markdown(f"""
-                **{header}** ({col_type}): *No noise added*
-                - Categorical/string data kept as-is
-                - Consider additional protection if sensitive
+                **{header}** ({col_type}): *{mechanism}*
+                {description}
+                - Privacy guarantee: MD5 Hashing or Randomized Response
                 """)
 
     # Metrics and analysis

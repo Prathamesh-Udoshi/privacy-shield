@@ -185,13 +185,54 @@ class DPMechanisms:
             else:
                 return not bool_value
 
-    def apply_string_masking(self, value: Any, config: Dict[str, Any]) -> Any:
+    def apply_string_masking(self, value: Any, config: Dict[str, Any], column_name: str = "") -> Any:
         """
-        Apply string masking/hashing. Vectorized helper for lists.
+        Apply string protection: either Randomized Response (categories) or Hashing/Masking (PII).
         """
+        epsilon = config.get('epsilon', 0.5)
+        
+        # Check if this is a categorical column (low unique count)
+        meta = self.metadata.get(column_name, {})
+        unique_vals = meta.get('unique_values', [])
+        unique_count = len(unique_vals)
+        
+        # Strategy 1: Categorical Swapping (Best for Gender, City, etc.)
+        # Keeps data readable and clean for ML models
+        if 1 < unique_count <= 15:
+            return self.apply_categorical_noise(value, unique_vals, epsilon)
+            
+        # Strategy 2: Vectorized helper for hashing/masking
         if isinstance(value, (list, np.ndarray)):
             return [self._mask_single_string(str(v), config) for v in value]
         return self._mask_single_string(str(value), config)
+
+    def apply_categorical_noise(self, value: Any, categories: List[str], epsilon: float) -> Any:
+        """
+        Apply generalized Randomized Response to categorical strings.
+        This provides formal DP while keeping the strings clean and readable.
+        """
+        k = len(categories)
+        if k <= 1: return value
+        
+        # Probability of staying with original value
+        p_stay = math.exp(epsilon) / (math.exp(epsilon) + k - 1)
+        
+        if isinstance(value, (list, np.ndarray)):
+            results = []
+            for v in value:
+                if random.random() < p_stay:
+                    results.append(str(v))
+                else:
+                    # Pick a different category
+                    others = [c for c in categories if str(c) != str(v)]
+                    results.append(random.choice(others) if others else str(v))
+            return results
+        else:
+            if random.random() < p_stay:
+                return str(value)
+            else:
+                others = [c for c in categories if str(c) != str(value)]
+                return random.choice(others) if others else str(value)
 
     def _mask_single_string(self, value: str, config: Dict[str, Any]) -> str:
         """Helper to mask a single string based on config."""
@@ -232,7 +273,7 @@ class DPMechanisms:
                 config['mask_type'] = 'hash'
                 return self.apply_string_masking(value, config)
             elif column_type == 'string':
-                return self.apply_string_masking(value, config)
+                return self.apply_string_masking(value, config, column_name)
             else:
                 return value
         except Exception as e:
@@ -336,6 +377,7 @@ def _analyze_value_patterns(values: list) -> dict:
         'ratios': ratios,
         'numeric_stats': numeric_stats,
         'unique_ratio': len(unique_values) / total_count,
+        'unique_values': list(unique_values),
         'avg_string_length': sum(string_lengths) / len(string_lengths) if string_lengths else 0,
         'total_count': total_count
     }
