@@ -25,7 +25,9 @@ class ConfigLoader:
         'global_epsilon': 1.0,
         'purpose': 'general',  # Current purpose being used
         'purposes': {},  # Purpose-specific epsilon mappings
-        'columns': {}
+        'columns': {},
+        # Set to an integer for reproducible runs; None = non-deterministic (default)
+        'random_seed': None,
     }
 
     REQUIRED_FIELDS = ['global_epsilon']
@@ -155,6 +157,13 @@ class ConfigLoader:
         # Validate column configurations
         if 'columns' in loaded_config:
             config['columns'] = self._validate_column_configs(loaded_config['columns'])
+
+        # Validate random_seed if specified
+        if 'random_seed' in loaded_config:
+            seed = loaded_config['random_seed']
+            if seed is not None and not isinstance(seed, int):
+                raise ValueError(f"random_seed must be an integer or null, got: {type(seed)}")
+            config['random_seed'] = seed
 
         return config
 
@@ -460,8 +469,22 @@ class ConfigLoader:
         with open(output_path, 'w', encoding='utf-8') as f:
             yaml.dump(self.config, f, default_flow_style=False, sort_keys=False)
 
+    def get_random_seed(self) -> Optional[int]:
+        """
+        Return the configured random seed.
+
+        Returns None if no seed is set (non-deterministic mode).
+        Seed this into dp.laplace.set_seed() once at the start of each
+        anonymization run to get fully reproducible outputs.
+        """
+        return self.config.get('random_seed', None)
+
     def __str__(self) -> str:
         """String representation of the configuration."""
         purpose = self.get_current_purpose()
         epsilon = self.get_global_epsilon()
-        return f"ConfigLoader(config_path='{self.config_path}', purpose='{purpose}', epsilon={epsilon})"
+        seed = self.get_random_seed()
+        return (
+            f"ConfigLoader(config_path='{self.config_path}', "
+            f"purpose='{purpose}', epsilon={epsilon}, seed={seed})"
+        )

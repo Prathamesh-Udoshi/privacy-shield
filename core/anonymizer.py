@@ -1,0 +1,218 @@
+"""
+core/anonymizer.py
+──────────────────
+Pure-Python DP core logic. No CLI, no file I/O — just the anonymization
+pipeline. Consumed by the FastAPI backend (backend/routers/anonymize.py).
+"""
+
+import os
+import numpy as np
+from typing import Dict, List, Any, Optional, Tuple
+
+from dp.budget import PrivacyBudget
+from dp.mechanisms import DPMechanisms, infer_column_type
+from dp.laplace import set_seed
+from config.loader import ConfigLoader
+from preprocessing.pipeline import EnhancedPreprocessingPipeline
+from ai.semantic_analyzer import SemanticAnalyzer
+from dotenv import load_dotenv
+
+load_dotenv()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Data helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+def preprocess_data(data: List[Dict[str, Any]]) -> Dict[str, List[Any]]:
+    """Convert list-of-row-dicts → column-wise dict-of-lists."""
+    if not data:
+        return {}
+    columns: Dict[str, List[Any]] = {}
+    for row in data:
+        for key, value in row.items():
+            columns.setdefault(key, []).append(value)
+    return columns
+
+
+def _convert_data_back(columns: Dict[str, List[Any]]) -> List[Dict[str, Any]]:
+    """Convert column-wise dict-of-lists → list-of-row-dicts."""
+    if not columns:
+        return []
+    num_rows = len(next(iter(columns.values())))
+    return [
+        {col: vals[i] if i < len(vals) else None for col, vals in columns.items()}
+        for i in range(num_rows)
+    ]
+
+
+def infer_column_types(
+    headers: List[str],
+    sample_data: List[Dict[str, Any]],
+) -> Tuple[Dict[str, str], Dict[str, dict]]:
+    """
+    Infer column types using AI if OPENAI_API_KEY is set, then statistical
+    heuristics for the remainder.
+    """
+    column_data = preprocess_data(sample_data)
+    column_types: Dict[str, str] = {}
+    metadata: Dict[str, dict] = {}
+
+    ai_analyzer = SemanticAnalyzer()
+    ai_types: Dict[str, str] = (
+        ai_analyzer.analyze_columns(headers, sample_data) if ai_analyzer.client else {}
+    )
+
+    for header in headers:
+        if header in column_data:
+            sample_values = column_data[header][:100]
+            col_type, col_meta = infer_column_type(header, sample_values)
+            column_types[header] = ai_types.get(header, col_type)
+            metadata[header] = col_meta
+        else:
+            column_types[header] = "string"
+            metadata[header] = {}
+
+    return column_types, metadata
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Main anonymization pipeline
+# ─────────────────────────────────────────────────────────────────────────────
+
+def apply_anonymization(
+    original_data: List[Dict[str, Any]],
+    config_loader: ConfigLoader,
+    excluded_columns: Optional[List[str]] = None,
+) -> Tuple[List[Dict[str, Any]], PrivacyBudget, Dict[str, Any], List[Dict[str, Any]], Dict[str, str], bool]:
+    """
+    Apply differential privacy anonymization to the dataset.
+
+    Returns
+    -------
+    (anonymized_data, budget, preprocessing_report, preprocessed_data,
+     column_types, ai_was_active)
+    """
+    if not original_data:
+        return [], PrivacyBudget(config_loader.get_global_epsilon()), {}, [], {}, False
+
+    # ── Seed for reproducibility ─────────────────────────────────────────────
+    seed = config_loader.get_random_seed()
+    set_seed(seed)
+
+    headers = list(original_data[0].keys())
+    row_count = len(original_data)
+
+    # ── Small-dataset auto-adjustment ────────────────────────────────────────
+    current_epsilon = config_loader.get_global_epsilon()
+    if row_count < 500 and current_epsilon < 2.0:
+        config_loader.config["global_epsilon"] = 4.0
+
+    # ── Stage 1: Preprocessing ───────────────────────────────────────────────
+    total_epsilon = config_loader.get_global_epsilon()
+    preprocessing_epsilon = min(0.1, total_epsilon * 0.1)
+    remaining_epsilon = total_epsilon - preprocessing_epsilon
+
+    preprocessor = EnhancedPreprocessingPipeline(
+        imputation_epsilon=preprocessing_epsilon * 0.7
+    )
+    preprocessed_data, preprocessing_report = preprocessor.preprocess_dataset(
+        original_data, {}, preprocessing_epsilon
+    )
+
+    # ── Stage 2: Column type inference ──────────────────────────────────────
+    column_types, metadata = infer_column_types(
+        headers, preprocessed_data[:min(100, len(preprocessed_data))]
+    )
+    ai_active = bool(os.getenv("OPENAI_API_KEY"))
+
+    # ── Stage 3: Budget + mechanisms setup ──────────────────────────────────
+    budget = PrivacyBudget(remaining_epsilon)
+    mechanisms = DPMechanisms(budget, metadata=metadata)
+
+    # ── Stage 4: Per-column configs ─────────────────────────────────────────
+    column_configs: Dict[str, dict] = {}
+    for header in headers:
+        col_type = column_types[header]
+        column_configs[header] = config_loader.get_column_config(header, col_type)
+
+    if not config_loader.config.get("columns"):
+        column_configs.update(config_loader.auto_assign_epsilon(headers))
+
+    # ── Stage 5: Apply DP mechanism per column ───────────────────────────────
+    column_data = preprocess_data(preprocessed_data)
+    anonymized_columns: Dict[str, list] = {}
+
+    for header in headers:
+        # Excluded / target columns stay unchanged
+        if excluded_columns and header in excluded_columns:
+            anonymized_columns[header] = column_data[header]
+            continue
+
+        col_type = column_types[header]
+        config = column_configs[header]
+        original_values = column_data[header]
+
+        # Consume privacy budget for mechanisms that require it
+        if col_type in ["age", "year", "monetary", "numeric", "count", "boolean"]:
+            epsilon = config.get("epsilon", 0.1)
+            op_name = {
+                "age": "bounded_laplace",
+                "year": "bounded_laplace",
+                "monetary": "scaled_laplace",
+                "numeric": "laplace",
+                "count": "discrete_laplace",
+                "boolean": "randomized_response",
+            }.get(col_type, "laplace")
+
+            if not budget.consume_epsilon(epsilon, op_name, header):
+                anonymized_columns[header] = original_values
+                continue
+
+        # Numeric types — vectorised
+        if col_type in ["age", "year", "monetary", "numeric", "count"]:
+            processed: list = []
+            for v in original_values:
+                if v == "" or v is None:
+                    processed.append(np.nan)
+                else:
+                    try:
+                        processed.append(float(v))
+                    except (ValueError, TypeError):
+                        processed.append(np.nan)
+
+            anon = mechanisms.apply_mechanism(header, processed, col_type, config)
+            if isinstance(anon, np.ndarray):
+                final: list = []
+                for i, v in enumerate(anon):
+                    final.append(None if np.isnan(processed[i]) else float(v))
+                anonymized_columns[header] = final
+            else:
+                anonymized_columns[header] = anon
+
+        # Boolean — vectorised
+        elif col_type == "boolean":
+            bool_col: list = []
+            for v in original_values:
+                s = str(v).lower()
+                if s in ("true", "1", "yes"):
+                    bool_col.append(True)
+                elif s in ("false", "0", "no"):
+                    bool_col.append(False)
+                else:
+                    bool_col.append(None)
+
+            anon = mechanisms.apply_mechanism(header, bool_col, col_type, config)
+            anonymized_columns[header] = [
+                original_values[i] if bool_col[i] is None else bool(v)
+                for i, v in enumerate(anon)
+            ]
+
+        # String / ID / unknown
+        else:
+            anonymized_columns[header] = mechanisms.apply_mechanism(
+                header, original_values, col_type, config
+            )
+
+    anonymized_data = _convert_data_back(anonymized_columns)
+    return anonymized_data, budget, preprocessing_report, preprocessed_data, column_types, ai_active

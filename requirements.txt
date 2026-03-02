@@ -1,7 +1,16 @@
+# ── Backend API ──────────────────────────────────────────────
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+python-multipart>=0.0.12
+
+# ── Core DP / Data ───────────────────────────────────────────
 pyyaml>=6.0
-streamlit>=1.28.0
-pandas>=2.0.0
-scikit-learn>=1.3.0
-numpy>=1.24.0
-openai>=1.0.0
-python-dotenv>=1.0.0
+pandas>=2.0
+scikit-learn>=1.4
+numpy>=1.26
+
+# ── AI (optional — set OPENAI_API_KEY in .env to enable) ─────
+openai>=1.0
+
+# ── Config / Env ─────────────────────────────────────────────
+python-dotenv>=1.0
