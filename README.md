@@ -1,219 +1,283 @@
 # Privacy Shield 🔒
 
-**Complete Differential Privacy Data Protection Toolkit**
+**Industrial-Grade Differential Privacy Data Anonymization Platform**
 
-Privacy Shield is a comprehensive Python toolkit for protecting sensitive data using differential privacy. It provides both a **command-line interface** for batch processing and a **user-friendly web interface** for interactive use. The tool automatically analyzes any CSV file, intelligently infers data types, applies appropriate privacy mechanisms, and provides detailed reports on privacy guarantees and statistical utility preservation.
+Privacy Shield is a full-stack data anonymization platform that protects sensitive CSV data using **differential privacy** — the same mathematically rigorous framework used by Apple, Google, and the US Census Bureau. It features a modern **Next.js web frontend**, a **FastAPI backend**, and a comprehensive analysis engine with utility scoring and re-identification risk assessment.
 
-**Perfect for**: Testing pipelines, ML training, data sharing, compliance, and privacy-preserving analytics.
+> Upload a CSV → Configure your privacy budget → Download a provably anonymous dataset with full reports — in seconds.
+
+---
+
+## ✨ Features
+
+- **🔐 Mathematically Proven Privacy** — Built on differential privacy with Laplace, Gaussian, and randomized response mechanisms
+- **📊 Preserve Data Utility** — Smart noise calibration per column type ensures aggregate statistics survive anonymization
+- **🔍 Re-identification Risk Analysis** — Automated membership inference simulations and k-anonymity analysis
+- **🗂️ Automatic Column Detection** — Auto-detects ages, monetary values, IDs, booleans, years, counts, and more
+- **📋 Comprehensive Reports** — Column-by-column utility scores, mean preservation, std deviation analysis, and MAE
+- **⚙️ Configurable Privacy Budget** — Fine-tune ε with purpose presets (General, ML Training, Analytics, QA Testing, Data Sharing)
+- **🤖 AI-Enhanced Analysis** — Optional OpenAI integration for semantic column classification
+- **🌐 Modern Web Interface** — Next.js 16 + React 19 frontend with interactive charts and glassmorphism design
+- **⚡ FastAPI Backend** — Async job processing with real-time progress tracking
+
+---
 
 ## 🎯 What is Differential Privacy?
 
-Differential privacy is a mathematical framework for protecting individual privacy in datasets. It ensures that the presence or absence of any single individual's data doesn't significantly affect the results of queries on the dataset.
+Differential privacy is a mathematical framework that ensures the presence or absence of any single individual's data doesn't significantly affect the output. Privacy Shield adds carefully calibrated random noise to make individual records provably unidentifiable while keeping aggregate statistics approximately intact.
 
-**Key concept**: Adding carefully calibrated random noise makes it statistically impossible to determine whether a particular individual's data was included in the analysis.
+**Key concept**: `ε` (epsilon) controls the privacy-utility tradeoff:
 
-## 🏗️ Why Privacy Shield Exists
+| Epsilon Range | Privacy Level | Best For |
+|---------------|---------------|----------|
+| ε ≤ 0.5 | Maximum Privacy | Public data sharing |
+| 0.5 < ε ≤ 1.5 | Balanced | Analytics & ML training |
+| ε > 1.5 | Maximum Utility | Internal QA testing |
 
-In 2026, privacy regulations are strict - you cannot use real customer data for testing, development, or analytics. Privacy Shield helps by:
+---
 
-- **Anonymizing data**: Making individual records unidentifiable through mathematical guarantees.
-- **Preserving statistics**: Keeping aggregate insights (means, distributions) approximately intact through **Smart Sensitivity Scaling**.
-- **AI-Enhanced Analysis**: Uses OpenAI GPT models to semantically understand complex datasets and sensitive columns.
-- **Small Dataset Protection**: Automatically tunes privacy parameters for small samples (Iris/Titanic) to prevent data destruction.
-- **Web interface**: User-friendly application with side-by-side **Privacy Impact Viewers**.
-- **ML-ready output**: Consistent type-safe output ensured for seamless model retraining and deployment.
+## 🏗️ Architecture
+
+Privacy Shield is a full-stack application with three layers:
+
+```
+┌─────────────────────────────────────────────┐
+│  Frontend (Next.js 16 / React 19)           │
+│  • Landing page with feature showcase       │
+│  • CSV upload with drag-and-drop            │
+│  • Interactive Recharts visualizations       │
+│  • Structured report cards                  │
+├─────────────────────────────────────────────┤
+│  Backend (FastAPI + Uvicorn)                │
+│  • Async job queue with progress tracking   │
+│  • RESTful API (upload, status, results)    │
+│  • CSV download endpoint                    │
+├─────────────────────────────────────────────┤
+│  Core Engine (Python)                       │
+│  • Column type inference pipeline           │
+│  • DP mechanisms (Laplace, Gaussian, RR)    │
+│  • Privacy budget accounting                │
+│  • Utility & risk metric computation        │
+│  • AI semantic analysis (optional)          │
+└─────────────────────────────────────────────┘
+```
+
+---
+
+## 🚀 Quick Start
+
+### Prerequisites
+
+- **Python 3.10+**
+- **Node.js 18+** and **npm**
+- (Optional) OpenAI API key for AI-enhanced column detection
+
+### 1. Clone & Install Backend
+
+```bash
+git clone https://github.com/Prathamesh-Udoshi/privacy-shield.git
+cd privacy_shield
+
+# Create a virtual environment
+python -m venv .venv
+.venv\Scripts\activate        # Windows
+# source .venv/bin/activate   # macOS/Linux
+
+# Install Python dependencies
+pip install -r requirements.txt
+```
+
+### 2. Install Frontend
+
+```bash
+cd frontend
+npm install
+cd ..
+```
+
+### 3. Configure Environment
+
+```bash
+# Copy the example env file
+cp .env.example .env
+
+# (Optional) Add your OpenAI API key for AI-powered column detection
+# OPENAI_API_KEY=sk-...
+```
+
+### 4. Run the Application
+
+**Terminal 1 — Backend:**
+```bash
+uvicorn backend.main:app --reload --port 8000
+```
+
+**Terminal 2 — Frontend:**
+```bash
+cd frontend
+npm run dev
+```
+
+Then open **http://localhost:3000** in your browser.
+
+---
+
+## 🖥️ Web Interface
+
+### Landing Page
+The landing page explains what Privacy Shield does, how differential privacy works, and walks users through a 4-step guide:
+
+1. **Upload Your CSV** — Drag and drop any CSV with sensitive data
+2. **Configure Privacy Settings** — Choose a purpose preset or set ε manually
+3. **Anonymize with One Click** — Differential privacy noise applied column-by-column
+4. **Analyze & Download** — Review charts, reports, and download your safe CSV
+
+### Results Dashboard
+
+After anonymization, the results page provides:
+
+- **Metric Cards** — Linkage risk level, average utility score, privacy budget usage, records processed
+- **Column Type Detection** — Visual badges showing detected types (Age, Monetary, Boolean, ID, etc.)
+- **📊 Analysis Tab** — Interactive bar charts for utility scores and relative error per column, plus a detailed statistics table
+- **🔍 Data Preview Tab** — Side-by-side table comparing original vs. anonymized values with highlighted changes
+- **📋 Reports Tab** — Structured utility preservation and risk assessment reports with color-coded metrics
+
+---
 
 ## 📊 How It Works
 
+### Column-Aware Noise
+
+| Column Type | DP Mechanism | Sensitivity | Example |
+|-------------|--------------|-------------|---------|
+| Age | Bounded Laplace | Range-capped | Personal ages (0-120) |
+| Year | Bounded Laplace | Range-capped | Birth year, model year |
+| Numeric | Laplace / Gaussian | Range-capped | Continuous measurements |
+| Monetary | Scaled Laplace | Range-capped | Currency amounts (auto-scaled) |
+| Count | Discrete Laplace | 1 | Integer counts |
+| Boolean | Randomized Response | — | True/false flags |
+| ID / PK | MD5/SHA Hashing | — | Persistent identifiers |
+| String | Masking / Hashing | — | Categorical data & PII |
+
 ### Laplace Mechanism
-Privacy Shield implements the **Laplace mechanism** manually (no external DP libraries):
 
 ```
 noise = -scale × sign(u) × ln(1 - 2|u|)
 ```
 
-Where:
-- `ε` (epsilon) = privacy parameter (smaller = more privacy)
-- `u` = uniform random variable (-0.5, 0.5)
-- Scale = sensitivity / epsilon
+Where: `ε` = privacy parameter, `u` = uniform random (-0.5, 0.5), Scale = sensitivity / ε
 
 ### Privacy Budget Accounting
-- You set a total privacy budget (ε_total)
+
+- Total budget (ε_total) is set by the user
 - Each column consumes part of this budget
 - If budget is exceeded → warning + operation skipped
 - Final report shows budget utilization
 
-### Column-Aware Noise
+### Smart Sensitivity & Small Data Safeguards
 
-| Column Type | Strategy | Sensitivity | Use Case |
-|-------------|----------|-------------|----------|
-| Age | Bounded Laplace | range-capped | Personal ages (0-120) |
-| Year | Bounded Laplace | range-capped | Years like model year, birth year |
-| Numeric | Laplace/Gaussian | range-capped | Continuous measurements |
-| Monetary | Scaled Laplace | range-capped | Currency amounts (Auto-scaled) |
-| Count | Discrete Laplace | 1 | Integer counts |
-| Boolean | Randomized Response | - | True/false flags |
-| ID / PK | MD5/SHA Hashing | - | Persistent identifiers (PassengerId, UID) |
-| String | Masking/Hashing | - | Categorical data & PII |
+1. **Range-Adaptive Noise** — Pre-scans data ranges to scale noise appropriately
+2. **Auto-Epsilon Tuning** — For datasets with <500 rows, automatically increases ε to prevent data destruction
+3. **Non-Negative Constraints** — Enforces boundaries for values that can never be negative (Age, Price, Count)
 
-### 🤖 AI Semantic Analysis (NEW)
+---
 
-Privacy Shield now integrates with **OpenAI's GPT models** to provide high-fidelity data categorization.
-- **How to use**: Add `OPENAI_API_KEY` to your `.env` file.
-- **Benefit**: AI can identify columns like `Val_A` as internal IDs or `Amount_3` as currency, even when headers are cryptic. It acts as a high-priority override for our heuristic engine.
+## 🤖 AI Semantic Analysis (Optional)
 
-### ⚡ Smart Sensitivity & Small Data Safeguards
+Privacy Shield integrates with **OpenAI GPT models** for high-fidelity column classification:
 
-1. **Range-Adaptive Noise**: The tool pre-scans data ranges to scale noise. This prevents "Small Value Vaporization" (e.g., preventing a $7 fare from becoming $8000).
-2. **Auto-Epsilon Tuning**: For datasets with **< 500 rows**, the tool automatically increases the privacy budget (typically to ε=4.0) to ensure the resulting data remains statistically useful.
-3. **Non-Negative Constraints**: Automatically detects and enforces boundaries for measurements that can never be negative (Age, Price, Count).
+- Add `OPENAI_API_KEY` to your `.env` file
+- AI identifies columns like `Val_A` as internal IDs or `Amount_3` as currency
+- Acts as a high-priority override for the heuristic inference engine
 
-## 🚀 Quick Start
+---
 
-### Basic Usage
-```bash
-# Anonymize a CSV file with default settings
-python privacyshield.py --input users.csv --output safe_users.csv
+## 📈 Understanding the Reports
 
-# Use a configuration file
-python privacyshield.py --input users.csv --output safe_users.csv --config policy.yaml
+### Utility Preservation Report
+Column-by-column breakdown with:
+- **Mean Preservation** — Original vs. noisy mean with absolute/relative error
+- **Std Deviation Change** — How much variance shifted
+- **Mean Absolute Error (MAE)** — Average per-value distortion
+- **Utility Score (0-100)** — Weighted composite (50% mean, 30% std, 20% MAE)
+- **Overall Interpretation** — EXCELLENT (≥80), GOOD (≥60), FAIR (≥40), POOR (<40)
 
-# Set custom global epsilon
-python privacyshield.py --input users.csv --output safe_users.csv --epsilon 0.5
+### Re-identification Risk Assessment
+Multi-layered evaluation:
+- **Membership Inference Simulation** — Distance-based linking attack measuring how many records can be re-identified
+- **Uniqueness Reduction** — How much data entropy changed after anonymization
+- **K-Anonymity Analysis** — Estimated k-value based on quasi-identifiers
+- **Overall Risk Category** — LOW, MODERATE, or CRITICAL based on combined scoring
+
+---
+
+## 🔌 API Reference
+
+The FastAPI backend exposes the following endpoints:
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/v1/upload` | Upload CSV + privacy params, returns `job_id` |
+| `GET` | `/api/v1/jobs/{job_id}/status` | Poll job progress (status, progress %, message) |
+| `GET` | `/api/v1/jobs/{job_id}/result` | Get full results (metrics, reports, preview data) |
+| `GET` | `/api/v1/jobs/{job_id}/download` | Download the anonymized CSV file |
+
+API documentation is available at **http://localhost:8000/docs** when the backend is running.
+
+---
+
+## 📁 Project Structure
+
+```
+privacy_shield/
+├── frontend/                   # Next.js 16 web application
+│   ├── app/
+│   │   ├── page.tsx            # Landing page + upload tool
+│   │   ├── results/[jobId]/
+│   │   │   └── page.tsx        # Results dashboard
+│   │   ├── globals.css         # Design system & styles
+│   │   └── layout.tsx          # Root layout with fonts
+│   ├── lib/
+│   │   └── api.ts              # API client & types
+│   └── package.json
+├── backend/                    # FastAPI application
+│   ├── main.py                 # App entry point + CORS
+│   ├── routers/
+│   │   └── anonymize.py        # Upload, status, result, download endpoints
+│   ├── job_store.py            # In-memory job queue
+│   └── schemas.py              # Pydantic response models
+├── core/
+│   └── anonymizer.py           # Main anonymization orchestrator
+├── dp/                         # Differential privacy mechanisms
+│   ├── laplace.py              # Vectorized Laplace mechanism
+│   ├── gaussian.py             # Gaussian mechanism for (ε, δ)-DP
+│   ├── budget.py               # Privacy budget tracking
+│   └── mechanisms.py           # Range-adaptive DP strategies
+├── metrics/                    # Analysis & reporting
+│   ├── utility.py              # Statistical utility metrics
+│   └── risk.py                 # Membership inference simulator
+├── preprocessing/
+│   └── pipeline.py             # Column type inference & preprocessing
+├── ai/
+│   └── semantic_analyzer.py    # OpenAI-powered column classification
+├── config/
+│   └── loader.py               # YAML configuration handling
+├── examples/
+│   ├── users.csv               # Sample dataset
+│   ├── housing.csv             # ML-scale dataset
+│   └── policy.yaml             # Sample configuration
+├── requirements.txt            # Python dependencies
+├── .env                        # Environment variables
+└── README.md
 ```
 
-### Example Output
-```
-Privacy Shield v1.0
-Input: examples/users.csv
-Output: safe_users.csv
-Global ε: 1.0
-
-Reading input data...
-Loaded 50 rows with 9 columns
-
-Inferring column types...
-  user_id: count
-  name: string
-  age: age
-  gender: string
-  location: string
-  purchase_amount: monetary
-  login_count: count
-  is_active: boolean
-  last_login_days: count
-
-Applying differential privacy...
-  Processing user_id (count)...
-  Processing name (string)...
-  Processing age (age)...
-  Processing gender (string)...
-  Processing location (string)...
-  Processing purchase_amount (monetary)...
-  Processing login_count (count)...
-  Processing is_active (boolean)...
-  Processing last_login_days (count)...
-
-Privacy Budget Report
-==================================================
-Total Budget: ε = 1.000
-Used Budget:  ε = 0.700
-Remaining:    ε = 0.300
-Utilization:  70.0%
-
-Consumption Details:
-  1. bounded_laplace on 'age': ε = 0.200
-  2. scaled_laplace on 'purchase_amount': ε = 0.400
-  3. discrete_laplace on 'login_count': ε = 0.200
-
-Utility Preservation Report
-==================================================
-Column: age
-  Sample Size: 50
-  Mean Preservation:
-    Original: 35.5
-    Noisy:    35.6
-    Error:    0.1 (0.3%)
-  Utility Score: 98.7/100
-
-Re-identification Risk Assessment
-==================================================
-Uniqueness Reduction: 45.2%
-Overall Risk Assessment:
-  Risk Level: LOW
-  Interpretation: Low risk of re-identification
-```
-
-## 🌐 Web Interface
-
-Privacy Shield includes a **Streamlit-powered web application** for interactive use:
-
-### Starting the Web App
-```bash
-streamlit run streamlit_app.py
-```
-
-### Web Interface Features
-- **🆔 ID Handling**: Automatic detection and hashing of primary keys/identifiers.
-- **🔍 Privacy Impact Viewer**: Side-by-side row-level comparison of Original vs. Noisy data.
-- **⚡ AI Status Dashboard**: Real-time indicator showing if OpenAI-powered detection is active.
-- **📊 Robust Analysis**: Empirical risk scores calculated through membership inference simulations.
-- **💾 Type-Safe Download**: Guaranteed numeric consistency for immediate ML use.
-
-### Web Interface Workflow
-1. **Upload CSV** → Automatic column analysis
-2. **Configure Privacy** → Set epsilon values (0.1-5.0)
-3. **Review Results** → See mechanisms applied to each column
-4. **Download Output** → Get anonymized data with full reports
-
-### Benefits of Web Interface
-- **No Command Line Required**: Perfect for non-technical users
-- **Visual Feedback**: See exactly what's being protected
-- **Educational**: Learn about differential privacy concepts
-- **Batch Processing**: Handle multiple files easily
-- **Audit Trail**: Complete record of privacy decisions
-
-## 🤖 Machine Learning with Anonymized Data
-
-Privacy Shield includes a demonstration script showing how to use anonymized data for machine learning training:
-
-### Running the ML Demo
-```bash
-python ml_training_demo.py
-```
-
-### ML Demo Features
-- **Privacy-Preserving Training**: Train ML models on anonymized data
-- **Utility Comparison**: Compare model performance on original vs anonymized data
-- **Supported Algorithms**: Random Forest, Logistic Regression
-- **Statistical Validation**: Measures accuracy preservation under privacy constraints
-
-### Key Insights
-- **ε Selection Guide**: Higher ε (less privacy) = better model accuracy
-- **Feature Engineering**: Anonymized data maintains feature relationships
-- **Production Ready**: Models trained on anonymized data are privacy-safe for deployment
-
-### Example ML Results
-```
-Model Performance Comparison
-==================================================
-
-Random Forest:
-  Original Accuracy: 0.875
-  Anonymized Accuracy: 0.850
-  Accuracy Change: -2.5%
-
-Logistic Regression:
-  Original Accuracy: 0.825
-  Anonymized Accuracy: 0.800
-  Accuracy Change: -2.5%
-```
-
-**Result**: Minimal utility loss while providing formal privacy guarantees!
+---
 
 ## ⚙️ Configuration
 
-Create a `policy.yaml` file:
+### YAML Policy File
+
+Create a `policy.yaml` for fine-grained control:
 
 ```yaml
 global_epsilon: 1.0
@@ -247,177 +311,57 @@ columns:
 | `epsilon` | Per-column privacy parameter | Auto-assigned |
 | `method` | DP mechanism to use | Based on column type |
 | `sensitivity` | Query sensitivity | Based on column type |
-| `min`/`max` | Bounds for bounded mechanisms | - |
+| `min`/`max` | Bounds for bounded mechanisms | — |
 | `mask_type` | String masking method (`partial`/`hash`) | `partial` |
 
-## 📈 Understanding the Reports
+---
 
-### Privacy Budget Report
-Shows how much of your total ε was consumed. Lower utilization = more privacy budget left for future operations.
-
-### Utility Report
-Measures how well aggregate statistics are preserved:
-- **Utility Score**: 0-100 (higher = better preservation)
-- **Mean Error**: How much the average changed
-- **MAE**: Mean Absolute Error between original and noisy values
-
-### Risk Assessment
-A multi-layered evaluation of re-identification risk:
-- **Membership Inference Simulation**: A distance-based "linking attack" that measures how many anonymized records can be correctly matched to original identities.
-- **Uniqueness Reduction**: Measures how much the data entropy has increased.
-- **K-Anonymity**: Estimated anonymity level based on quasi-identifiers.
-- **Risk Level**: Labeled as LOW, MODERATE, or CRITICAL based on link success probability.
-
-## 🛠️ Installation & Requirements
-
-### Requirements
-- Python 3.8+
-- For CLI usage: Standard library only (csv, math, random, argparse, yaml)
-- For Web interface: Streamlit, pandas, numpy
-
-### Installation
-```bash
-# Clone or download the privacy_shield directory
-cd privacy_shield
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Make executable (optional)
-chmod +x privacyshield.py
-```
-
-### Dependencies
-```bash
-# Core dependencies (CLI)
-pip install pyyaml
-
-# Web interface dependencies
-pip install streamlit pandas
-
-# ML demonstration
-pip install scikit-learn
-```
-
-### Requirements File
-Create `requirements.txt`:
-```
-pyyaml>=6.0
-streamlit>=1.28.0
-pandas>=2.0.0
-scikit-learn>=1.3.0
-```
-
-## 📁 Project Structure
-
-```
-privacy_shield/
-├── streamlit_app.py     # Web-based interface
-├── privacyshield.py     # Main CLI tool
-├── ml_training_demo.py  # ML training demonstration (Titanic/Housing support)
-├── requirements.txt     # Project dependencies
-├── .env                 # API Key storage (Copy .env.example)
-├── ai/
-│   └── semantic_analyzer.py # OpenAI-powered semantic engine
-├── dp/
-│   ├── laplace.py       # Vectorized Laplace mechanism
-│   ├── gaussian.py      # Gaussian mechanism for (ε, δ)-DP
-│   ├── budget.py        # Privacy budget tracking
-│   └── mechanisms.py    # Range-Adaptive DP strategies
-├── metrics/
-│   ├── utility.py       # Statistical utility metrics
-│   └── risk.py          # Membership Inference Simulator
-├── config/
-│   └── loader.py        # YAML configuration handling
-├── examples/
-│   ├── users.csv        # Sample dataset
-│   ├── housing.csv      # Large-scale ML dataset
-│   └── policy.yaml      # Sample configuration
-└── README.md
-```
-
-## ⚠️ Limitations & Important Notes
+## ⚠️ Limitations & Notes
 
 ### Technical Limitations
-1. **Not for production systems** - This is for testing/development only
-2. **Heuristic risk assessment** - Not a formal privacy guarantee
-3. **CSV-only** - Designed specifically for tabular data
-4. **Memory-bound** - Loads entire dataset into memory
+- **CSV-only** — Designed for tabular data
+- **Memory-bound** — Loads the entire dataset into memory
+- **In-memory job store** — Jobs are lost on backend restart
 
 ### Privacy Limitations
-1. **No composition theorems** - Simple budget tracking, not advanced composition
-2. **Assumed sensitivities** - Uses rule-of-thumb sensitivities, not query-specific
-3. **No correlated columns** - Treats columns independently
-4. **String handling** - Basic masking, not formal DP for text
-5. **Simulated Risk** - The Membership Inference score is a simulation, not a formal mathematical ceiling of risk.
-
-### When NOT to Use
-- Production data processing
-- High-stakes privacy decisions
-- Large datasets (>100k rows)
-- Correlated sensitive attributes
-- Real-time systems
+- **No composition theorems** — Simple budget tracking, not advanced composition
+- **Assumed sensitivities** — Uses rule-of-thumb sensitivities, not query-specific
+- **No correlated columns** — Treats columns independently
+- **Simulated risk** — Membership inference is a simulation, not a formal mathematical bound
 
 ### Best Practices
-1. **Start with small ε** (0.1-0.5) for high privacy
-2. **Test utility metrics** before using in pipelines
-3. **Monitor risk reports** for unexpected patterns
-4. **Version control configs** like code
-5. **Document your privacy parameters**
+1. Start with a small ε (0.1–0.5) for strong privacy
+2. Check utility scores before using anonymized data in pipelines
+3. Monitor risk reports for unexpected patterns
+4. Test on small datasets first, then scale up
+5. Document your privacy parameters
 
-## 🔧 Development & Testing
+---
 
-### CLI Testing
-```bash
-# Test with example data
-python privacyshield.py --input examples/users.csv --output test_output.csv
+## 🛠️ Tech Stack
 
-# Test with configuration
-python privacyshield.py --input examples/users.csv --output test_output.csv --config examples/policy.yaml
+| Layer | Technology |
+|-------|-----------|
+| Frontend | Next.js 16, React 19, TypeScript, Recharts, Lucide Icons |
+| Backend | FastAPI, Uvicorn, Python 3.10+ |
+| DP Engine | NumPy, Pandas, custom Laplace/Gaussian implementations |
+| AI (optional) | OpenAI GPT API |
+| Styling | Vanilla CSS with glassmorphism design system |
 
-# Test with custom epsilon
-python privacyshield.py --input examples/users.csv --output test_output.csv --epsilon 0.1
-```
-
-### Web Interface Testing
-```bash
-# Start the web application
-streamlit run streamlit_app.py
-
-# Then visit http://localhost:8501 in your browser
-```
-
-### ML Training Demo
-```bash
-# Test anonymized data for machine learning
-python ml_training_demo.py
-```
-
-### Understanding Test Results
-- **Utility Score > 80**: Good statistical preservation
-- **Risk Level LOW**: Acceptably private
-- **Budget utilization < 90%**: Room for additional operations
-- **Type Inference Accuracy**: All columns correctly classified
-- **Web Interface**: Proper mechanism explanations and reports
-
-## 🤝 Contributing
-
-This tool follows engineering best practices:
-- **Clean, typed Python** with clear docstrings
-- **Modular architecture** for easy extension
-- **Comprehensive error handling**
-- **No over-engineering** - focused on the core use case
+---
 
 ## 📄 License
 
-This is a reference implementation for educational and testing purposes. Adapt and modify as needed for your specific use case.
+This is a reference implementation for educational and development purposes. Adapt and modify as needed for your specific use case.
+
+---
 
 ## 🙋 Support
 
 For questions about differential privacy concepts or tool usage:
-1. Check the example configurations
-2. Review the utility and risk reports
+1. Check the example configurations in `examples/`
+2. Review the utility and risk reports after anonymization
 3. Start with small epsilon values and increase gradually
-4. Test on small datasets first
+4. Consult the API docs at `/docs` when the backend is running
 
-Remember: **Privacy is hard**. When in doubt, consult privacy experts or use established DP libraries for production systems.
+> **Remember**: Privacy is hard. When in doubt, consult privacy experts or use established DP libraries for production systems.

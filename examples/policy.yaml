@@ -5,21 +5,32 @@
 # Global privacy budget (epsilon) - higher values = less privacy but more utility
 global_epsilon: 1.0
 
+# Optional: set a fixed random seed for reproducible anonymization runs.
+# Remove this line (or set to null) for non-deterministic output.
+# random_seed: 42
+
 # Column-specific configurations
-# Each column can have its own privacy parameters
+# Each column can have its own privacy parameters.
+#
+# IMPORTANT: For a FORMAL epsilon-DP guarantee on numeric/monetary columns,
+# always declare 'min' and 'max' bounds. The sensitivity is then computed as
+# (max - min), which is the true L1 sensitivity of the identity query.
+# Without these bounds the tool uses a heuristic (sample range) which is NOT
+# a provable DP bound.
 columns:
-  # Age column - uses bounded Laplace to keep values in valid range
+  # Age column - formal DP guarantee via min/max bounds
   age:
     method: bounded_laplace
-    epsilon: 0.2        # Privacy parameter for this column
-    min: 18            # Minimum valid age
-    max: 90            # Maximum valid age
+    epsilon: 0.2
+    min: 0              # Formal sensitivity = max - min = 120
+    max: 120
 
-  # Purchase amount - monetary values with custom sensitivity
+  # Purchase amount - formal DP guarantee via declared bounds
   purchase_amount:
     method: laplace
     epsilon: 0.4
-    sensitivity: 1000.0  # Max difference in purchase amounts
+    min: 0.0            # Formal sensitivity = 10000 - 0 = 10000
+    max: 10000.0
 
   # Login count - integer counts
   login_count:
@@ -42,3 +53,4 @@ columns:
 # - Higher epsilon = less privacy (less noise, better utility)
 # - If no column config is provided, epsilon is split equally
 # - String columns (name, location, gender) are masked, not DP-anonymized
+# - Use 'min'/'max' on numeric columns for a formal DP proof

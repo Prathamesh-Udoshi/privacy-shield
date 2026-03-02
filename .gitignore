@@ -164,8 +164,8 @@ logs/
 temp/
 tmp/
 
-# Streamlit specific
-.streamlit/secrets.toml
+# Streamlit (removed — project now uses FastAPI + Next.js)
+# .streamlit/
 
 # Configuration files that may contain secrets
 config/secrets.*
@@ -179,14 +179,19 @@ scratch.py
 test_*.py
 debug_*.py
 
-# Privacy Shield specific
-# Model files (if any ML models are saved)
-*.pkl
-*.joblib
-*.h5
-*.pb
+# Privacy Shield — Next.js / FastAPI
+# Generated data / output
+examples/run_*.csv
+examples/out_*.csv
 
-# Cache directories
-.cache/
-.pytest_cache/
-.mypy_cache/
+# Next.js
+frontend/.next/
+frontend/out/
+frontend/.vercel
+
+# FastAPI / Uvicorn
+*.pid
+
+# Node
+node_modules/
+frontend/node_modules/
