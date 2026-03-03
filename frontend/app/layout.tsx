@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-    title: "Privacy Shield — Differential Privacy Anonymization",
+    title: "Privacy Shield | Differential Privacy Anonymization",
     description:
         "Industrial-grade differential privacy for everyone. Upload a CSV and get a provably anonymous dataset in seconds.",
     keywords: ["differential privacy", "data anonymization", "GDPR", "privacy"],
