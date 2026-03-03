@@ -13,7 +13,7 @@ load_dotenv(os.path.join(_ROOT, ".env"))
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.routers import anonymize, policies
+from backend.routers import anonymize, analyze, policies
 
 app = FastAPI(
     title="Privacy Shield API",
@@ -36,6 +36,7 @@ app.add_middleware(
 )
 
 app.include_router(anonymize.router, prefix="/api/v1", tags=["Anonymization"])
+app.include_router(analyze.router, tags=["Analysis"])
 app.include_router(policies.router, prefix="/api/v1", tags=["Policies"])
 
 

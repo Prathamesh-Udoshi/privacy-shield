@@ -84,6 +84,7 @@ def apply_anonymization(
     original_data: List[Dict[str, Any]],
     config_loader: ConfigLoader,
     excluded_columns: Optional[List[str]] = None,
+    type_overrides: Optional[Dict[str, str]] = None,
 ) -> Tuple[List[Dict[str, Any]], PrivacyBudget, Dict[str, Any], List[Dict[str, Any]], Dict[str, str], bool]:
     """
     Apply differential privacy anonymization to the dataset.
@@ -125,6 +126,12 @@ def apply_anonymization(
         headers, preprocessed_data[:min(100, len(preprocessed_data))]
     )
     ai_active = bool(os.getenv("OPENAI_API_KEY"))
+
+    # Apply user type overrides from the per-column config dashboard
+    if type_overrides:
+        for col_name, override_type in type_overrides.items():
+            if col_name in column_types and override_type:
+                column_types[col_name] = override_type
 
     # ── Stage 3: Budget + mechanisms setup ──────────────────────────────────
     budget = PrivacyBudget(remaining_epsilon)

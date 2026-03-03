@@ -6,8 +6,13 @@ import {
     Shield, Upload, Lock, ChevronDown, ChevronUp,
     Zap, AlertTriangle, BarChart2, GitBranch, Share2,
     ArrowRight, Eye, FileText, Database, ShieldCheck, TrendingUp, CheckCircle,
+    Settings2, ToggleLeft, ToggleRight,
 } from "lucide-react";
-import { uploadFile, pollJobStatus } from "@/lib/api";
+import {
+    uploadFile, pollJobStatus, analyzeFile,
+    COL_TYPE_META, VALID_COL_TYPES, MECHANISM_OPTIONS,
+    ColumnAnalysis, ColumnConfig,
+} from "@/lib/api";
 
 const PURPOSES = [
     { key: "general", label: "General", epsilon: 1.0, icon: <Shield size={14} /> },
@@ -99,6 +104,12 @@ export default function Home() {
     const [progressMsg, setProgressMsg] = useState("");
     const [error, setError] = useState<string | null>(null);
 
+    // Column config dashboard state
+    const [analyzing, setAnalyzing] = useState(false);
+    const [columnAnalysis, setColumnAnalysis] = useState<ColumnAnalysis[] | null>(null);
+    const [columnConfigs, setColumnConfigs] = useState<Record<string, ColumnConfig>>({});
+    const [showColumnConfig, setShowColumnConfig] = useState(false);
+
     const scrollToTool = () => {
         toolRef.current?.scrollIntoView({ behavior: "smooth" });
     };
@@ -126,7 +137,29 @@ export default function Home() {
         setFile(f);
         setError(null);
         parsePreview(f);
-    }, [parsePreview]);
+
+        // Call /analyze to get column info for the config dashboard
+        setAnalyzing(true);
+        setColumnAnalysis(null);
+        setColumnConfigs({});
+        analyzeFile({ file: f, maxRows })
+            .then((result) => {
+                setColumnAnalysis(result.columns);
+                // Initialize per-column configs with defaults
+                const configs: Record<string, ColumnConfig> = {};
+                for (const col of result.columns) {
+                    configs[col.name] = {
+                        epsilon: 0.2,
+                        method: col.mechanism,
+                        enabled: true,
+                        type_override: col.detected_type,
+                    };
+                }
+                setColumnConfigs(configs);
+            })
+            .catch(() => { /* silently skip — analysis is optional enhancement */ })
+            .finally(() => setAnalyzing(false));
+    }, [parsePreview, maxRows]);
 
     const { getRootProps, getInputProps, isDragActive } = useDropzone({
         onDrop, accept: { "text/csv": [".csv"] }, multiple: false,
@@ -137,7 +170,37 @@ export default function Home() {
         setProcessing(true); setError(null); setProgress(5);
         setProgressMsg("Uploading file…");
         try {
-            const { job_id } = await uploadFile({ file, epsilon, purpose, seed, maxRows, excludedColumns: excluded });
+            // Build excluded columns from configs
+            const disabledCols = Object.entries(columnConfigs)
+                .filter(([, cfg]) => !cfg.enabled)
+                .map(([name]) => name);
+            const allExcluded = [...new Set([...excluded, ...disabledCols])];
+
+            // Build type overrides
+            const typeOverrides: Record<string, string> = {};
+            if (columnAnalysis) {
+                for (const col of columnAnalysis) {
+                    const cfg = columnConfigs[col.name];
+                    if (cfg && cfg.type_override !== col.detected_type) {
+                        typeOverrides[col.name] = cfg.type_override;
+                    }
+                }
+            }
+
+            // Build per-column epsilon/method configs
+            const colConfigs: Record<string, Partial<ColumnConfig>> = {};
+            for (const [name, cfg] of Object.entries(columnConfigs)) {
+                if (cfg.enabled) {
+                    colConfigs[name] = { epsilon: cfg.epsilon, method: cfg.method };
+                }
+            }
+
+            const { job_id } = await uploadFile({
+                file, epsilon, purpose, seed, maxRows,
+                excludedColumns: allExcluded,
+                columnConfigs: Object.keys(colConfigs).length > 0 ? colConfigs : undefined,
+                typeOverrides: Object.keys(typeOverrides).length > 0 ? typeOverrides : undefined,
+            });
             let done = false;
             while (!done) {
                 await new Promise((r) => setTimeout(r, 600));
@@ -155,6 +218,13 @@ export default function Home() {
             setError(err instanceof Error ? err.message : "Unknown error");
             setProcessing(false);
         }
+    };
+
+    const updateColumnConfig = (colName: string, updates: Partial<ColumnConfig>) => {
+        setColumnConfigs(prev => ({
+            ...prev,
+            [colName]: { ...prev[colName], ...updates },
+        }));
     };
 
     const toggleExclude = (col: string) =>
@@ -407,6 +477,159 @@ export default function Home() {
                                         </div>
                                     </div>
                                 </div>
+                            )}
+
+                            {/* ═══ PER-COLUMN CONFIG DASHBOARD ═══ */}
+                            {columnAnalysis && columnAnalysis.length > 0 && (
+                                <div style={{ marginTop: 24 }}>
+                                    <button
+                                        onClick={() => setShowColumnConfig(v => !v)}
+                                        className="btn-ghost"
+                                        style={{ marginBottom: 16, display: "flex", alignItems: "center", gap: 8 }}
+                                    >
+                                        <Settings2 size={14} />
+                                        Per-Column Configuration
+                                        {showColumnConfig ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                                    </button>
+
+                                    {showColumnConfig && (
+                                        <div style={{ display: "grid", gap: 10 }}>
+                                            {/* Header row */}
+                                            <div style={{
+                                                display: "grid",
+                                                gridTemplateColumns: "2fr 1.2fr 1.2fr 0.8fr 60px",
+                                                gap: 12, padding: "8px 14px",
+                                                fontSize: 10, fontWeight: 700, color: "#475569",
+                                                textTransform: "uppercase", letterSpacing: "0.1em",
+                                            }}>
+                                                <span>Column</span>
+                                                <span>Type</span>
+                                                <span>Mechanism</span>
+                                                <span>Epsilon</span>
+                                                <span style={{ textAlign: "center" }}>Active</span>
+                                            </div>
+
+                                            {columnAnalysis.map((col) => {
+                                                const cfg = columnConfigs[col.name];
+                                                if (!cfg) return null;
+                                                const typeMeta = COL_TYPE_META[cfg.type_override] || COL_TYPE_META.string;
+                                                const mechanisms = MECHANISM_OPTIONS[cfg.type_override] || ["mask"];
+
+                                                return (
+                                                    <div key={col.name} style={{
+                                                        display: "grid",
+                                                        gridTemplateColumns: "2fr 1.2fr 1.2fr 0.8fr 60px",
+                                                        gap: 12, padding: "10px 14px",
+                                                        borderRadius: 10,
+                                                        background: cfg.enabled
+                                                            ? "rgba(255,255,255,0.03)"
+                                                            : "rgba(255,255,255,0.01)",
+                                                        border: "1px solid",
+                                                        borderColor: cfg.enabled
+                                                            ? "rgba(255,255,255,0.07)"
+                                                            : "rgba(255,255,255,0.03)",
+                                                        opacity: cfg.enabled ? 1 : 0.45,
+                                                        transition: "all 0.2s",
+                                                        alignItems: "center",
+                                                    }}>
+                                                        {/* Column name + samples */}
+                                                        <div>
+                                                            <p style={{ fontSize: 13, fontWeight: 600, color: "#e2e8f0", marginBottom: 2 }}>
+                                                                {col.name}
+                                                            </p>
+                                                            <p style={{ fontSize: 10, color: "#475569" }}>
+                                                                {col.sample_values.slice(0, 3).join(", ")}
+                                                            </p>
+                                                        </div>
+
+                                                        {/* Type override */}
+                                                        <select
+                                                            value={cfg.type_override}
+                                                            onChange={(e) => {
+                                                                const newType = e.target.value;
+                                                                const newMechanisms = MECHANISM_OPTIONS[newType] || ["mask"];
+                                                                updateColumnConfig(col.name, {
+                                                                    type_override: newType,
+                                                                    method: newMechanisms[0],
+                                                                });
+                                                            }}
+                                                            disabled={!cfg.enabled}
+                                                            className="input"
+                                                            style={{ fontSize: 12, padding: "6px 8px", cursor: "pointer" }}
+                                                        >
+                                                            {VALID_COL_TYPES.map(t => (
+                                                                <option key={t} value={t}>
+                                                                    {COL_TYPE_META[t]?.emoji} {COL_TYPE_META[t]?.label || t}
+                                                                </option>
+                                                            ))}
+                                                        </select>
+
+                                                        {/* Mechanism */}
+                                                        <select
+                                                            value={cfg.method}
+                                                            onChange={(e) => updateColumnConfig(col.name, { method: e.target.value })}
+                                                            disabled={!cfg.enabled}
+                                                            className="input"
+                                                            style={{ fontSize: 12, padding: "6px 8px", cursor: "pointer" }}
+                                                        >
+                                                            {mechanisms.map(m => (
+                                                                <option key={m} value={m}>{m.replace(/_/g, " ")}</option>
+                                                            ))}
+                                                        </select>
+
+                                                        {/* Epsilon */}
+                                                        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                                                            <input
+                                                                type="number"
+                                                                min={0.01}
+                                                                max={5.0}
+                                                                step={0.05}
+                                                                value={cfg.epsilon}
+                                                                onChange={(e) => updateColumnConfig(col.name, { epsilon: parseFloat(e.target.value) || 0.1 })}
+                                                                disabled={!cfg.enabled}
+                                                                className="input"
+                                                                style={{ fontSize: 12, padding: "6px 8px", width: "100%" }}
+                                                            />
+                                                        </div>
+
+                                                        {/* Enabled toggle */}
+                                                        <div style={{ textAlign: "center", cursor: "pointer" }}
+                                                            onClick={() => updateColumnConfig(col.name, { enabled: !cfg.enabled })}>
+                                                            {cfg.enabled
+                                                                ? <ToggleRight size={22} color="#8b5cf6" />
+                                                                : <ToggleLeft size={22} color="#334155" />}
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+
+                                            {/* Summary bar */}
+                                            <div style={{
+                                                display: "flex", justifyContent: "space-between",
+                                                padding: "10px 14px", borderRadius: 8,
+                                                background: "rgba(139,92,246,0.08)",
+                                                border: "1px solid rgba(139,92,246,0.15)",
+                                                fontSize: 12, color: "#94a3b8",
+                                            }}>
+                                                <span>
+                                                    {Object.values(columnConfigs).filter(c => c.enabled).length} columns active
+                                                </span>
+                                                <span>
+                                                    Total column ε: {Object.values(columnConfigs)
+                                                        .filter(c => c.enabled)
+                                                        .reduce((sum, c) => sum + c.epsilon, 0)
+                                                        .toFixed(2)}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {analyzing && (
+                                <p style={{ fontSize: 12, color: "#64748b", marginTop: 12 }}>
+                                    Analyzing columns...
+                                </p>
                             )}
 
                             {/* Divider */}

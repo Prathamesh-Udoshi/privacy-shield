@@ -9,6 +9,7 @@ GET  /api/v1/jobs/{id}/download — download anonymized CSV
 import asyncio
 import csv
 import io
+import json
 import os
 import sys
 from typing import Optional
@@ -40,6 +41,8 @@ async def upload_file(
     seed: Optional[int] = Form(None),
     max_rows: int = Form(1000),
     excluded_columns: str = Form(""),
+    column_configs: str = Form(""),
+    type_overrides: str = Form(""),
 ):
     """Accept a CSV upload and start an anonymization job."""
     fname = file.filename or ""
@@ -50,11 +53,27 @@ async def upload_file(
     job_id = create_job()
     excluded = [c.strip() for c in excluded_columns.split(",") if c.strip()]
 
+    # Parse per-column configs from JSON
+    col_configs_dict = {}
+    if column_configs and column_configs.strip():
+        try:
+            col_configs_dict = json.loads(column_configs)
+        except json.JSONDecodeError:
+            pass
+
+    type_overrides_dict = {}
+    if type_overrides and type_overrides.strip():
+        try:
+            type_overrides_dict = json.loads(type_overrides)
+        except json.JSONDecodeError:
+            pass
+
     update_job(job_id, status=JobStatus.processing, progress=5, message="File received")
 
     background_tasks.add_task(
         _run_anonymization,
         job_id, content, epsilon, purpose, seed, max_rows, excluded,
+        col_configs_dict, type_overrides_dict,
     )
 
     return {"job_id": job_id, "status": "processing"}
@@ -72,10 +91,13 @@ async def _run_anonymization(
     seed: Optional[int],
     max_rows: int,
     excluded: list,
+    column_configs: dict = None,
+    type_overrides: dict = None,
 ) -> None:
     try:
         result = await asyncio.to_thread(
-            _sync_anonymize, job_id, content, epsilon, purpose, seed, max_rows, excluded
+            _sync_anonymize, job_id, content, epsilon, purpose, seed, max_rows, excluded,
+            column_configs or {}, type_overrides or {},
         )
         update_job(job_id, status=JobStatus.done, progress=100, message="Done!", result=result)
     except Exception as exc:
@@ -94,6 +116,8 @@ def _sync_anonymize(
     seed: Optional[int],
     max_rows: int,
     excluded: list,
+    column_configs: dict = None,
+    type_overrides: dict = None,
 ) -> dict:
     from config.loader import ConfigLoader
     from core.anonymizer import apply_anonymization, preprocess_data
@@ -136,10 +160,16 @@ def _sync_anonymize(
     if seed is not None:
         config_loader.config["random_seed"] = seed
 
+    # Inject per-column configs from the dashboard
+    if column_configs:
+        for col_name, col_cfg in column_configs.items():
+            config_loader.config["columns"][col_name] = col_cfg
+
     # ── 3. Anonymize ────────────────────────────────────────────────────────
     update_job(job_id, progress=40, message="Applying differential privacy…")
     anonymized_data, budget, pre_report, pre_data, column_types, ai_active = apply_anonymization(
-        data, config_loader, excluded_columns=excluded
+        data, config_loader, excluded_columns=excluded,
+        type_overrides=type_overrides or {},
     )
 
     # ── 4. Metrics ──────────────────────────────────────────────────────────
