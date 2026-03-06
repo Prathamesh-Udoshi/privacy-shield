@@ -76,13 +76,16 @@ class DPMechanisms:
         min_age = config.get('min', 0)
         max_age = config.get('max', 120)
 
-        return add_bounded_laplace_noise(
+        noisy = add_bounded_laplace_noise(
             value=value,
             sensitivity=1.0,
             epsilon=epsilon,
             min_val=min_age,
             max_val=max_age
         )
+        if isinstance(noisy, np.ndarray):
+            return np.round(noisy).astype(int)
+        return int(round(float(noisy)))
 
     def apply_year_noise(self, value: Any, config: Dict[str, Any]) -> Any:
         """
@@ -92,13 +95,16 @@ class DPMechanisms:
         min_year = config.get('min', 1900)
         max_year = config.get('max', 2050)
 
-        return add_bounded_laplace_noise(
+        noisy = add_bounded_laplace_noise(
             value=value,
             sensitivity=1.0,
             epsilon=epsilon,
             min_val=min_year,
             max_val=max_year
         )
+        if isinstance(noisy, np.ndarray):
+            return np.round(noisy).astype(int)
+        return int(round(float(noisy)))
 
     def apply_numeric_noise(self, value: Any, config: Dict[str, Any], column_name: str = "") -> Any:
         """

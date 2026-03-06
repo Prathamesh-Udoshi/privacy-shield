@@ -154,10 +154,9 @@ def apply_anonymization(
     headers = list(original_data[0].keys())
     row_count = len(original_data)
 
-    # ── Small-dataset auto-adjustment ────────────────────────────────────────
-    current_epsilon = config_loader.get_global_epsilon()
-    if row_count < 500 and current_epsilon < 2.0:
-        config_loader.config["global_epsilon"] = 4.0
+    # Small-dataset auto-adjustment removed to strictly respect user epsilon Choice
+    # if row_count < 500 and current_epsilon < 2.0:
+    #     config_loader.config["global_epsilon"] = 4.0
 
     # ── Stage 1: Preprocessing ───────────────────────────────────────────────
     total_epsilon = config_loader.get_global_epsilon()
@@ -193,14 +192,23 @@ def apply_anonymization(
         col_type = column_types[header]
         column_configs[header] = config_loader.get_column_config(header, col_type)
 
-    if not config_loader.config.get("columns"):
-        column_configs.update(config_loader.auto_assign_epsilon(headers))
+    # Dynamic allocation happens below in Stage 5
 
     # ── Stage 5: Apply DP mechanism per column ───────────────────────────────
     column_data = preprocess_data(preprocessed_data)
     anonymized_columns: Dict[str, list] = {}
 
-    # ── Stage 5: Dynamic Budget Allocation ──────────────────────────────────
+    # Detect original data types for restoration
+    orig_types = {}
+    if preprocessed_data:
+        first_row = preprocessed_data[0]
+        for col in headers:
+            val = first_row.get(col)
+            if isinstance(val, bool): orig_types[col] = bool
+            elif isinstance(val, int): orig_types[col] = int
+            elif isinstance(val, (float, np.float64, np.float32)): orig_types[col] = float
+            else: orig_types[col] = str
+
     sensitive_cols = [
         h for h in headers
         if (not excluded_columns or h not in excluded_columns) and
@@ -229,15 +237,16 @@ def apply_anonymization(
         
         if auto_cols:
             # Distribute remaining budget among auto_cols
+            # ONLY sensitive columns get a share of the DP budget
             remaining_for_auto = max(0, available_epsilon - user_defined_sum)
             epsilon_per_auto = remaining_for_auto / len(auto_cols)
             for h in auto_cols:
                 column_configs[h]['epsilon'] = epsilon_per_auto
         
         # Final safety check: if total sum > available, scale proportionally
-        total_requested = sum(column_configs[h]['epsilon'] for h in sensitive_cols)
-        if total_requested > available_epsilon and available_epsilon > 0:
-            scale_factor = (available_epsilon - 0.0001) / total_requested # small buffer
+        total_requested = sum(column_configs[h].get('epsilon', 0) for h in sensitive_cols)
+        if total_requested > (available_epsilon + 1e-9) and available_epsilon > 0:
+            scale_factor = (available_epsilon - 0.0001) / total_requested
             for h in sensitive_cols:
                 column_configs[h]['epsilon'] *= scale_factor
 
@@ -284,7 +293,15 @@ def apply_anonymization(
             if isinstance(anon, np.ndarray):
                 final: list = []
                 for i, v in enumerate(anon):
-                    final.append(None if np.isnan(processed[i]) else float(v))
+                    if np.isnan(processed[i]):
+                        final.append(None)
+                    else:
+                        # Restore original type (int vs float)
+                        val = float(v)
+                        if orig_types.get(header) == int:
+                            final.append(int(round(val)))
+                        else:
+                            final.append(val)
                 anonymized_columns[header] = final
             else:
                 anonymized_columns[header] = anon
