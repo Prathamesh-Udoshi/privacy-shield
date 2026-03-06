@@ -143,14 +143,16 @@ def _sync_anonymize(
     if not headers:
         raise ValueError("CSV file has no headers")
 
-    data: list = []
-    for i, row in enumerate(reader):
-        if i >= max_rows:
-            break
-        data.append(dict(row))
+    all_data: list = []
+    for row in reader:
+        all_data.append(dict(row))
+
+    total_dataset_rows = len(all_data)
+    processed_rows = min(total_dataset_rows, max_rows)
+    data = all_data[:processed_rows]
 
     if not data:
-        raise ValueError("CSV file is empty")
+        raise ValueError("CSV file is empty or contains no valid rows after processing limit")
 
     # ── 2. Configure ────────────────────────────────────────────────────────
     update_job(job_id, progress=20, message="Loading privacy policy…")
@@ -213,6 +215,21 @@ def _sync_anonymize(
     elif "Overall Risk Category: MODERATE" in risk_report_str:
         risk_level = "MODERATE"
 
+    # ── 6. Metrics and Reporting ───────────────────────────────────────────
+    update_job(job_id, progress=90, message="Generating safety reports…")
+    
+    from metrics.bias import analyze_dataset_integrity, generate_diagnostic_report_str
+    
+    # Determine a default target variable for diagnostics
+    target_var = None
+    for col in reversed(headers):
+        if column_types.get(col) in ("numeric", "monetary", "count") and col not in ("id", "index", "uuid"):
+            target_var = col
+            break
+            
+    integrity_analysis = analyze_dataset_integrity(data, column_types, target_variable=target_var)
+    diagnostic_report_str = generate_diagnostic_report_str(integrity_analysis)
+
     update_job(job_id, progress=95, message="Finalizing…")
 
     return {
@@ -229,8 +246,13 @@ def _sync_anonymize(
         "utility_report": utility_report_str,
         "utility_metrics": utility_metrics,
         "row_count": len(anonymized_data),
+        "total_dataset_rows": total_dataset_rows,
+        "max_rows_selected": max_rows,
+        "processed_rows": processed_rows,
         "ai_active": ai_active,
         "preprocessing_report": pre_report,
+        "bias_report": diagnostic_report_str,
+        "bias_analysis": integrity_analysis,
     }
 
 

@@ -150,6 +150,48 @@ def apply_anonymization(
     column_data = preprocess_data(preprocessed_data)
     anonymized_columns: Dict[str, list] = {}
 
+    # ── Stage 5: Dynamic Budget Allocation ──────────────────────────────────
+    sensitive_cols = [
+        h for h in headers
+        if (not excluded_columns or h not in excluded_columns) and
+        column_types[h] in ["age", "year", "monetary", "numeric", "count", "boolean"]
+    ]
+
+    if sensitive_cols:
+        # Check for user-defined epsilons in column_configs
+        user_defined_sum = 0
+        user_defined_cols = []
+        auto_cols = []
+
+        for h in sensitive_cols:
+            # We consider it user-defined if it's explicitly in the config loader's 'columns' config
+            # OR if it was passed via the dashboard (which sets config['epsilon'])
+            # But wait, config_loader.get_column_config adds defaults.
+            # Let's check if the header was in config_loader.config['columns']
+            if config_loader.config.get('columns', {}).get(h, {}).get('epsilon'):
+                user_defined_cols.append(h)
+                user_defined_sum += column_configs[h]['epsilon']
+            else:
+                auto_cols.append(h)
+
+        # Calculate budget pool
+        available_epsilon = budget.remaining_epsilon
+        
+        if auto_cols:
+            # Distribute remaining budget among auto_cols
+            remaining_for_auto = max(0, available_epsilon - user_defined_sum)
+            epsilon_per_auto = remaining_for_auto / len(auto_cols)
+            for h in auto_cols:
+                column_configs[h]['epsilon'] = epsilon_per_auto
+        
+        # Final safety check: if total sum > available, scale proportionally
+        total_requested = sum(column_configs[h]['epsilon'] for h in sensitive_cols)
+        if total_requested > available_epsilon and available_epsilon > 0:
+            scale_factor = (available_epsilon - 0.0001) / total_requested # small buffer
+            for h in sensitive_cols:
+                column_configs[h]['epsilon'] *= scale_factor
+
+    # ── Stage 6: Apply DP mechanism per column ───────────────────────────────
     for header in headers:
         # Excluded / target columns stay unchanged
         if excluded_columns and header in excluded_columns:

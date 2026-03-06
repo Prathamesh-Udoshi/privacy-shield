@@ -195,3 +195,5 @@ frontend/.vercel
 # Node
 node_modules/
 frontend/node_modules/
+
+future.md

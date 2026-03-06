@@ -108,6 +108,7 @@ export default function Home() {
     const [analyzing, setAnalyzing] = useState(false);
     const [columnAnalysis, setColumnAnalysis] = useState<ColumnAnalysis[] | null>(null);
     const [columnConfigs, setColumnConfigs] = useState<Record<string, ColumnConfig>>({});
+    const [auditSummary, setAuditSummary] = useState<{ score: number; findings: { type: string; severity: string; message: string }[] } | null>(null);
     const [showColumnConfig, setShowColumnConfig] = useState(false);
 
     const scrollToTool = () => {
@@ -145,6 +146,12 @@ export default function Home() {
         analyzeFile({ file: f, maxRows })
             .then((result) => {
                 setColumnAnalysis(result.columns);
+                if (result.health_score !== undefined) {
+                    setAuditSummary({
+                        score: result.health_score,
+                        findings: result.bias_findings || []
+                    });
+                }
                 // Initialize per-column configs with defaults
                 const configs: Record<string, ColumnConfig> = {};
                 for (const col of result.columns) {
@@ -157,7 +164,7 @@ export default function Home() {
                 }
                 setColumnConfigs(configs);
             })
-            .catch(() => { /* silently skip — analysis is optional enhancement */ })
+            .catch((err) => { console.warn("Column analysis failed:", err); })
             .finally(() => setAnalyzing(false));
     }, [parsePreview, maxRows]);
 
@@ -459,6 +466,53 @@ export default function Home() {
                                         </table>
                                     </div>
 
+                                    {/* ═══ DATASET AUDIT SUMMARY ═══ */}
+                                    {auditSummary && (
+                                        <div style={{
+                                            marginTop: 20, padding: "16px 20px", borderRadius: 12,
+                                            background: "rgba(139,92,246,0.04)", border: "1px solid rgba(139,92,246,0.15)",
+                                            display: "flex", gap: 20, flexWrap: "wrap", alignItems: "center"
+                                        }}>
+                                            <div style={{ textAlign: "center", borderRight: "1px solid rgba(139,92,246,0.1)", paddingRight: 20 }}>
+                                                <p style={{ fontSize: 9, color: "#64748b", fontWeight: 800, marginBottom: 2 }}>HEALTH SCORE</p>
+                                                <p style={{
+                                                    fontSize: 24, fontWeight: 900,
+                                                    color: auditSummary.score >= 80 ? "#10b981" : auditSummary.score >= 50 ? "#f59e0b" : "#ef4444"
+                                                }}>{auditSummary.score}</p>
+                                            </div>
+                                            <div style={{ flex: 1, minWidth: 200 }}>
+                                                <p style={{ fontSize: 12, color: "#e2e8f0", fontWeight: 600, display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                                                    <Shield size={12} color="#a78bfa" /> Dataset Pre-Audit Findings
+                                                </p>
+                                                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                                                    {auditSummary.findings.length === 0 ? (
+                                                        <span style={{ fontSize: 11, color: "#10b981", background: "rgba(16,185,129,0.1)", padding: "4px 10px", borderRadius: 6 }}>
+                                                            ✅ Healthy: No patterns detected.
+                                                        </span>
+                                                    ) : (
+                                                        <>
+                                                            {auditSummary.findings.slice(0, 2).map((f, i) => (
+                                                                <span key={i} style={{
+                                                                    fontSize: 10, padding: "3px 10px", borderRadius: 6,
+                                                                    background: f.severity === "high" ? "rgba(239,68,68,0.1)" : "rgba(245,158,11,0.1)",
+                                                                    color: f.severity === "high" ? "#ef4444" : "#f59e0b",
+                                                                    fontWeight: 600
+                                                                }}>
+                                                                    {f.type.toUpperCase()}: {f.message.split(".")[0].split(":")[0]}
+                                                                </span>
+                                                            ))}
+                                                            {auditSummary.findings.length > 2 && (
+                                                                <span style={{ fontSize: 10, color: "#64748b", fontWeight: 600 }}>
+                                                                    + {auditSummary.findings.length - 2} more
+                                                                </span>
+                                                            )}
+                                                        </>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+
                                     {/* Exclude columns */}
                                     <div style={{ marginTop: 16 }}>
                                         <p style={{ fontSize: 12, color: "#64748b", fontWeight: 600, marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.06em" }}>
@@ -691,8 +745,19 @@ export default function Home() {
                             {showAdvanced && (
                                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 4 }}>
                                     <div>
-                                        <label style={{ fontSize: 12, color: "#64748b", display: "block", marginBottom: 6 }}>Max rows</label>
-                                        <input type="number" min={1} max={50000} step={500} value={maxRows} onChange={(e) => setMaxRows(parseInt(e.target.value))} className="input" />
+                                        <label style={{ fontSize: 12, color: "#64748b", display: "block", marginBottom: 6 }}>Anonymization Limit (Max Rows)</label>
+                                        <input
+                                            type="number"
+                                            min={500}
+                                            max={50000}
+                                            step={500}
+                                            value={maxRows}
+                                            onChange={(e) => {
+                                                const val = parseInt(e.target.value);
+                                                if (!isNaN(val)) setMaxRows(val);
+                                            }}
+                                            className="input"
+                                        />
                                     </div>
                                     <div>
                                         <label style={{ fontSize: 12, color: "#64748b", display: "block", marginBottom: 6 }}>Random seed (optional, 0 = none)</label>

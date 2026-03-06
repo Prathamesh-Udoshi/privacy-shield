@@ -51,8 +51,13 @@ class JobResult(BaseModel):
     utility_report: str
     utility_metrics: List[Dict[str, Any]]
     row_count: int
+    total_dataset_rows: int = 0
+    max_rows_selected: int = 0
+    processed_rows: int = 0
     ai_active: bool
     preprocessing_report: Dict[str, Any]
+    bias_report: Optional[str] = None
+    bias_analysis: Optional[Dict[str, Any]] = None
 
 
 class PolicyCreate(BaseModel):

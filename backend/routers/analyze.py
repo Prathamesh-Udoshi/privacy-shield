@@ -106,8 +106,28 @@ async def analyze_file(
             "stats": stats,
         })
 
+    # ── 5. Dataset Integrity & Statistical Diagnostics ──────────────────────
+    health_score = 100.0
+    bias_findings = []
+    try:
+        from metrics.bias import analyze_dataset_integrity
+        # Determine a default target variable (last numeric column usually)
+        target_var = None
+        for col in reversed(headers):
+            if column_types.get(col) in ("numeric", "monetary", "count") and col not in ("id", "index", "uuid"):
+                target_var = col
+                break
+        
+        integrity_analysis = analyze_dataset_integrity(data, column_types, target_variable=target_var)
+        health_score = integrity_analysis.get("health_score", 100.0)
+        bias_findings = integrity_analysis.get("findings", [])
+    except Exception as e:
+        print(f"Dataset diagnostic failed (non-fatal): {e}")
+
     return {
         "headers": headers,
         "row_count": len(data),
         "columns": columns_analysis,
+        "health_score": health_score,
+        "bias_findings": bias_findings,
     }
