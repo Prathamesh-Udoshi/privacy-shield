@@ -149,7 +149,7 @@ Thumbs.db
 safe_users.csv
 anonymized_data.csv
 output/
-results/
+#results/
 data/
 datasets/
 logs/
