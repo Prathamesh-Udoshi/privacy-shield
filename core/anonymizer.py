@@ -6,6 +6,8 @@ pipeline. Consumed by the FastAPI backend (backend/routers/anonymize.py).
 """
 
 import os
+import json
+import pandas as pd
 import numpy as np
 from typing import Dict, List, Any, Optional, Tuple
 
@@ -74,6 +76,54 @@ def infer_column_types(
             metadata[header] = {}
 
     return column_types, metadata
+
+
+def _detect_and_recompute_relationships(
+    anonymized_columns: Dict[str, list],
+    original_columns: Dict[str, list],
+    column_types: Dict[str, str]
+):
+    """
+    Heuristically detect and recompute derived columns to preserve consistency.
+    Example: Total = Price * Quantity
+    """
+    headers = list(anonymized_columns.keys())
+    numeric_cols = [h for h in headers if column_types.get(h) in ("numeric", "monetary", "count", "age")]
+    
+    if len(numeric_cols) < 3:
+        return
+
+    # Check for Product Relationships: A * B = C
+    for i, a in enumerate(numeric_cols):
+        for j, b in enumerate(numeric_cols):
+            if i == j: continue
+            for k, c in enumerate(numeric_cols):
+                if k == i or k == j: continue
+                
+                # Sample 100 rows to verify relationship
+                orig_a = np.array(pd.to_numeric(original_columns[a], errors='coerce'))
+                orig_b = np.array(pd.to_numeric(original_columns[b], errors='coerce'))
+                orig_c = np.array(pd.to_numeric(original_columns[c], errors='coerce'))
+                
+                mask = ~np.isnan(orig_a) & ~np.isnan(orig_b) & ~np.isnan(orig_c)
+                if mask.sum() < 10: continue
+                
+                # Check for A * B = C
+                diff = np.abs((orig_a[mask] * orig_b[mask]) - orig_c[mask])
+                if np.all(diff < 0.01): # Tolerance for floating point
+                    # Recompute C in the anonymized data
+                    anon_a = np.array(pd.to_numeric(anonymized_columns[a], errors='coerce'))
+                    anon_b = np.array(pd.to_numeric(anonymized_columns[b], errors='coerce'))
+                    anonymized_columns[c] = (anon_a * anon_b).tolist()
+                    continue
+
+                # Check for A + B = C
+                diff_sum = np.abs((orig_a[mask] + orig_b[mask]) - orig_c[mask])
+                if np.all(diff_sum < 0.01):
+                    anon_a = np.array(pd.to_numeric(anonymized_columns[a], errors='coerce'))
+                    anon_b = np.array(pd.to_numeric(anonymized_columns[b], errors='coerce'))
+                    anonymized_columns[c] = (anon_a + anon_b).tolist()
+                    continue
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -262,6 +312,10 @@ def apply_anonymization(
             anonymized_columns[header] = mechanisms.apply_mechanism(
                 header, original_values, col_type, config
             )
+
+    # ── Stage 7: Relationship Preservation ──────────────────────────────────
+    original_columns = preprocess_data(preprocessed_data)
+    _detect_and_recompute_relationships(anonymized_columns, original_columns, column_types)
 
     anonymized_data = _convert_data_back(anonymized_columns)
     return anonymized_data, budget, preprocessing_report, preprocessed_data, column_types, ai_active

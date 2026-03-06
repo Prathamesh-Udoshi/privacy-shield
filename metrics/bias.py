@@ -7,10 +7,13 @@ Provides objective, dataset-agnostic metrics for data quality and distribution:
   - Feature-Target association (potential leakage or strong predictors)
   - General distribution diagnostics
 """
+import os
+import json
 import pandas as pd
 import numpy as np
 from typing import Dict, List, Any, Optional
 from scipy import stats as sp_stats
+from ai.semantic_analyzer import SemanticAnalyzer
 
 
 # ── Statistical Helpers ──────────────────────────────────────────────────────
@@ -168,7 +171,8 @@ def analyze_dataset_integrity(
 
 def generate_diagnostic_report_str(analysis: Dict[str, Any]) -> str:
     """
-    Generates a markdown report focusing on statistical diagnostics.
+    Generates a user-friendly markdown report with plain-language explanations
+    and optional AI-driven insights.
     """
     score = analysis.get("health_score", 0)
     findings = analysis.get("findings", [])
@@ -177,10 +181,32 @@ def generate_diagnostic_report_str(analysis: Dict[str, Any]) -> str:
     
     status = "EXCELLENT" if score >= 90 else "GOOD" if score >= 75 else "FAIR" if score >= 50 else "POOR"
     
+    # ── Plain-language Explanations ──────────────────────────────────────────
+    explanations = {
+        "health_score": (
+            "The Health Score measures the overall technical quality of your dataset. "
+            "It drops when we find duplicates, missing values, or extreme statistical anomalies "
+            "that could make model training unreliable."
+        ),
+        "skew": (
+            "Distribution Skew identifies columns where one category appears much more often than others. "
+            "A high ratio (e.g. 20:1) means the data is imbalanced, which might cause models to 'ignore' "
+            "under-represented groups or rare cases."
+        ),
+        "associations": (
+            "Feature Predictive Strength measures how much a column 'knows' about your target variable. "
+            "High values (0.7+) mean the column is a strong predictor. Values near 1.0 (95%+) often "
+            "trigger a 'Data Leakage' warning, meaning the column might contain the answer it's trying to predict."
+        )
+    }
+
     report = [
         f"DATASET INTEGRITY & STATISTICAL AUDIT",
         f"=====================================",
         f"Health Score: {score}/100 ({status})",
+        "",
+        "> **What is this?**",
+        f"> {explanations['health_score']}",
         "",
         "### 📋 Dataset Overview",
         f"- Total Samples: {metrics.get('total_rows')}",
@@ -199,10 +225,49 @@ def generate_diagnostic_report_str(analysis: Dict[str, Any]) -> str:
 
     if impacts:
         report.append("")
-        report.append("### 📊 Statistical Feature Associations")
-        report.append("Measures how strongly features relate to the performance target.")
+        report.append("### 📊 Feature Predictive Strength")
+        report.append("> **How to read this:**")
+        report.append(f"> {explanations['associations']}")
+        report.append("")
         for col, score_val in sorted(impacts.items(), key=lambda x: -x[1])[:8]:
             bar = "█" * int(score_val * 20)
             report.append(f"- {col}: {score_val:.3f} {bar}")
+
+    # ── Optional: AI Insights ────────────────────────────────────────────────
+    api_key = os.getenv("OPENAI_API_KEY")
+    if api_key:
+        try:
+            analyzer = SemanticAnalyzer(api_key=api_key)
+            if analyzer.client:
+                # Prepare a summary for AI
+                findings_summary = [f"{f['type']}: {f['message']}" for f in findings[:5]]
+                impacts_summary = {k: round(v, 2) for k, v in sorted(impacts.items(), key=lambda x: -x[1])[:5]}
+                
+                prompt = f"""
+                You are a data scientist interpreting a dataset diagnostic report.
+                
+                Health Score: {score} ({status})
+                Top Findings: {findings_summary}
+                Top Predictors: {impacts_summary}
+                
+                Provide 2-3 brief 'Dataset Insights' for a non-technical manager. 
+                Explain what these results mean for their business or analysis.
+                Avoid jargon. Keep it to 3 bullets max.
+                """
+                
+                response = analyzer.client.chat.completions.create(
+                    model="gpt-3.5-turbo-0125",
+                    messages=[
+                        {"role": "system", "content": "You are a senior data analyst."},
+                        {"role": "user", "content": prompt}
+                    ]
+                )
+                ai_text = response.choices[0].message.content.strip()
+                
+                report.append("")
+                report.append("### 💡 AI Insider Insights")
+                report.append(ai_text)
+        except Exception:
+            pass # Gracefully degrade if AI fails
 
     return "\n".join(report)

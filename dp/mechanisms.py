@@ -135,14 +135,31 @@ class DPMechanisms:
             epsilon=epsilon,
         )
 
-        # Smart clipping to non-negative domain
+        # Robust clipping: respect declared bounds first, then fall back to sampled range
         stats = self.metadata.get(column_name, {}).get('numeric_stats', {})
-        if stats.get('all_non_negative', False):
-            if isinstance(noisy, np.ndarray):
-                return np.maximum(0, noisy)
-            return max(0.0, float(noisy))
+        
+        # Use declared bounds if available, otherwise observed bounds
+        clip_min = declared_min if declared_min is not None else stats.get('min')
+        clip_max = declared_max if declared_max is not None else stats.get('max')
 
-        return noisy
+        # Fallback for non-negative check
+        if clip_min is None and stats.get('all_non_negative', False):
+            clip_min = 0.0
+
+        if isinstance(noisy, np.ndarray):
+            if clip_min is not None and clip_max is not None:
+                return np.clip(noisy, clip_min, clip_max)
+            elif clip_min is not None:
+                return np.maximum(clip_min, noisy)
+            elif clip_max is not None:
+                return np.minimum(clip_max, noisy)
+            return noisy
+        
+        # Scalar case
+        res = float(noisy)
+        if clip_min is not None: res = max(clip_min, res)
+        if clip_max is not None: res = min(clip_max, res)
+        return res
 
     def apply_monetary_noise(self, value: Any, config: Dict[str, Any], column_name: str = "") -> Any:
         """
@@ -173,13 +190,26 @@ class DPMechanisms:
             scale_factor=1.0,
         )
 
+        # Robust clipping for monetary values
         stats = self.metadata.get(column_name, {}).get('numeric_stats', {})
-        if stats.get('all_non_negative', False):
-            if isinstance(noisy, np.ndarray):
-                return np.maximum(0, noisy)
-            return max(0.0, float(noisy))
+        clip_min = declared_min if declared_min is not None else stats.get('min')
+        clip_max = declared_max if declared_max is not None else stats.get('max')
 
-        return noisy
+        # Fallback for non-negative check (default true for monetary usually)
+        if clip_min is None and stats.get('all_non_negative', True):
+            clip_min = 0.0
+
+        if isinstance(noisy, np.ndarray):
+            if clip_min is not None and clip_max is not None:
+                return np.clip(noisy, clip_min, clip_max)
+            elif clip_min is not None:
+                return np.maximum(clip_min, noisy)
+            return noisy
+        
+        res = float(noisy)
+        if clip_min is not None: res = max(clip_min, res)
+        if clip_max is not None: res = min(clip_max, res)
+        return res
 
     def apply_count_noise(self, value: Any, config: Dict[str, Any], column_name: str = "") -> Any:
         """
@@ -193,14 +223,20 @@ class DPMechanisms:
             epsilon=epsilon
         )
         
-        # Counts should almost always be non-negative
+        # Robust clipping for counts
         stats = self.metadata.get(column_name, {}).get('numeric_stats', {})
-        if stats.get('all_non_negative', True): # Default True for counts
-            if isinstance(noisy, np.ndarray):
-                return np.maximum(0, noisy)
-            return max(0, int(noisy))
+        clip_min = config.get('min') if config.get('min') is not None else stats.get('min', 0)
+        clip_max = config.get('max') if config.get('max') is not None else stats.get('max')
+
+        if isinstance(noisy, np.ndarray):
+            if clip_max is not None:
+                return np.clip(noisy, clip_min, clip_max).astype(int)
+            return np.maximum(clip_min, noisy).astype(int)
             
-        return noisy
+        res = int(noisy)
+        res = max(int(clip_min), res)
+        if clip_max is not None: res = min(int(clip_max), res)
+        return res
 
     def apply_boolean_noise(self, value: Any, config: Dict[str, Any], column_name: str = "") -> Any:
         """
