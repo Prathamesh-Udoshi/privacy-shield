@@ -2,27 +2,31 @@ import os
 import json
 from typing import Dict, List, Any, Optional
 try:
-    from openai import OpenAI
-    HAS_OPENAI = True
+    import google.generativeai as genai
+    HAS_GEMINI = True
 except ImportError:
-    HAS_OPENAI = False
+    HAS_GEMINI = False
 
 class SemanticAnalyzer:
     """
-    Uses LLMs to perform high-fidelity semantic data analysis.
+    Uses Gemini LLM to perform high-fidelity semantic data analysis.
     This helps in identifying sensitive columns that traditional 
     regex-based inference might miss.
     """
     
     def __init__(self, api_key: Optional[str] = None):
-        self.api_key = api_key or os.getenv("OPENAI_API_KEY")
-        self.client = OpenAI(api_key=self.api_key) if (HAS_OPENAI and self.api_key) else None
+        self.api_key = api_key or os.getenv("GEMINI_API_KEY")
+        if HAS_GEMINI and self.api_key:
+            genai.configure(api_key=self.api_key)
+            self.model = genai.GenerativeModel('gemini-1.5-flash')
+        else:
+            self.model = None
 
     def analyze_columns(self, headers: List[str], sample_data: List[Dict[str, Any]]) -> Dict[str, str]:
         """
-        Calls OpenAI to analyze the semantic meaning of columns.
+        Calls Gemini to analyze the semantic meaning of columns.
         """
-        if not self.client:
+        if not self.model:
             return {}
 
         # Prepare a prompt with headers and a few samples
@@ -36,20 +40,19 @@ class SemanticAnalyzer:
         Headers: {headers}
         Sample Data: {sample_json}
         
-        Return ONLY a JSON object mapping column names to categories.
+        Return ONLY a JSON object mapping column names to categories. Do not include any markdown formatting like ```json or other text.
         """
 
         try:
-            response = self.client.chat.completions.create(
-                model="gpt-3.5-turbo-0125",
-                messages=[
-                    {"role": "system", "content": "You are a data privacy expert."},
-                    {"role": "user", "content": prompt}
-                ],
-                response_format={ "type": "json_object" }
-            )
-            
-            result = json.loads(response.choices[0].message.content)
+            response = self.model.generate_content(prompt)
+            # Clean up response text if it contains markdown code blocks
+            text = response.text.strip()
+            if text.startswith("```json"):
+                text = text.replace("```json", "").replace("```", "").strip()
+            elif text.startswith("```"):
+                text = text.replace("```", "").strip()
+                
+            result = json.loads(text)
             return result
         except Exception as e:
             print(f"AI Analysis Error: {e}")
@@ -57,9 +60,9 @@ class SemanticAnalyzer:
 
     def detect_bias_context(self, headers: List[str], sample_data: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
-        Uses OpenAI to identify sensitive attributes, target variables, and potential proxies.
+        Uses Gemini to identify sensitive attributes, target variables, and potential proxies.
         """
-        if not self.client:
+        if not self.model:
             return {}
 
         sample_json = json.dumps(sample_data[:5], indent=2)
@@ -77,20 +80,45 @@ class SemanticAnalyzer:
         4. Provide 'fairness_risk_level' (Low, Medium, High).
         5. Suggest 'mitigation_strategies'.
         
-        Return ONLY a JSON object with these keys. No other text.
+        Return ONLY a JSON object with these keys. No other text. Do not include any markdown formatting like ```json.
         """
 
         try:
-            response = self.client.chat.completions.create(
-                model="gpt-3.5-turbo-0125",
-                messages=[
-                    {"role": "system", "content": "You are an AI Ethics and Fairness Auditor."},
-                    {"role": "user", "content": prompt}
-                ],
-                response_format={ "type": "json_object" }
-            )
-            
-            return json.loads(response.choices[0].message.content)
+            response = self.model.generate_content(prompt)
+            text = response.text.strip()
+            if text.startswith("```json"):
+                text = text.replace("```json", "").replace("```", "").strip()
+            elif text.startswith("```"):
+                text = text.replace("```", "").strip()
+                
+            return json.loads(text)
         except Exception as e:
             print(f"AI Bias Detection Error: {e}")
             return {}
+
+    def generate_insights(self, score: float, status: str, findings: List[str], impacts: Dict[str, float]) -> str:
+        """
+        Generates AI-driven insights for the diagnostic report.
+        """
+        if not self.model:
+            return ""
+
+        prompt = f"""
+        You are a data scientist interpreting a dataset diagnostic report.
+        
+        Health Score: {score} ({status})
+        Top Findings: {findings}
+        Top Predictors: {impacts}
+        
+        Provide 2-3 brief 'Dataset Insights' for a non-technical manager. 
+        Explain what these results mean for their business or analysis.
+        Avoid jargon. Keep it to 3 bullets max.
+        """
+
+        try:
+            response = self.model.generate_content(prompt)
+            return response.text.strip()
+        except Exception as e:
+            print(f"AI Insights Error: {e}")
+            return ""
+

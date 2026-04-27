@@ -16,7 +16,7 @@ Privacy Shield is a full-stack data anonymization platform that protects sensiti
 - **🗂️ Automatic Column Detection** — Auto-detects ages, monetary values, IDs, booleans, years, counts, and more
 - **📋 Comprehensive Reports** — Column-by-column utility scores, mean preservation, std deviation analysis, and MAE
 - **⚙️ Configurable Privacy Budget** — Fine-tune ε with purpose presets (General, ML Training, Analytics, QA Testing, Data Sharing)
-- **🤖 AI-Enhanced Analysis** — Optional OpenAI integration for semantic column classification
+- **🤖 AI-Enhanced Analysis** — Optional Gemini integration for semantic column classification
 - **🌐 Modern Web Interface** — Next.js 16 + React 19 frontend with interactive charts and glassmorphism design
 - **⚡ FastAPI Backend** — Async job processing with real-time progress tracking
 
@@ -70,7 +70,7 @@ Privacy Shield is a full-stack application with three layers:
 
 - **Python 3.10+**
 - **Node.js 18+** and **npm**
-- (Optional) OpenAI API key for AI-enhanced column detection
+- (Optional) Gemini API key for AI-enhanced column detection
 
 ### 1. Clone & Install Backend
 
@@ -101,8 +101,8 @@ cd ..
 # Copy the example env file
 cp .env.example .env
 
-# (Optional) Add your OpenAI API key for AI-powered column detection
-# OPENAI_API_KEY=sk-...
+# (Optional) Add your Gemini API key for AI-powered column detection
+# GEMINI_API_KEY=your-key-here
 ```
 
 ### 4. Run the Application
@@ -184,9 +184,9 @@ Where: `ε` = privacy parameter, `u` = uniform random (-0.5, 0.5), Scale = sensi
 
 ## 🤖 AI Semantic Analysis (Optional)
 
-Privacy Shield integrates with **OpenAI GPT models** for high-fidelity column classification:
+Privacy Shield integrates with **Google Gemini models** for high-fidelity column classification:
 
-- Add `OPENAI_API_KEY` to your `.env` file
+- Add `GEMINI_API_KEY` to your `.env` file
 - AI identifies columns like `Val_A` as internal IDs or `Amount_3` as currency
 - Acts as a high-priority override for the heuristic inference engine
 
@@ -259,7 +259,7 @@ privacy_shield/
 ├── preprocessing/
 │   └── pipeline.py             # Column type inference & preprocessing
 ├── ai/
-│   └── semantic_analyzer.py    # OpenAI-powered column classification
+│   └── semantic_analyzer.py    # Gemini-powered column classification
 ├── config/
 │   └── loader.py               # YAML configuration handling
 ├── examples/
@@ -345,7 +345,7 @@ columns:
 | Frontend | Next.js 16, React 19, TypeScript, Recharts, Lucide Icons |
 | Backend | FastAPI, Uvicorn, Python 3.10+ |
 | DP Engine | NumPy, Pandas, custom Laplace/Gaussian implementations |
-| AI (optional) | OpenAI GPT API |
+| AI (optional) | Google Gemini API |
 | Styling | Vanilla CSS with glassmorphism design system |
 
 ---

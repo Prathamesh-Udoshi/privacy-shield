@@ -234,40 +234,23 @@ def generate_diagnostic_report_str(analysis: Dict[str, Any]) -> str:
             report.append(f"- {col}: {score_val:.3f} {bar}")
 
     # ── Optional: AI Insights ────────────────────────────────────────────────
-    api_key = os.getenv("OPENAI_API_KEY")
+    api_key = os.getenv("GEMINI_API_KEY")
     if api_key:
         try:
             analyzer = SemanticAnalyzer(api_key=api_key)
-            if analyzer.client:
+            if analyzer.model:
                 # Prepare a summary for AI
                 findings_summary = [f"{f['type']}: {f['message']}" for f in findings[:5]]
                 impacts_summary = {k: round(v, 2) for k, v in sorted(impacts.items(), key=lambda x: -x[1])[:5]}
                 
-                prompt = f"""
-                You are a data scientist interpreting a dataset diagnostic report.
+                ai_text = analyzer.generate_insights(score, status, findings_summary, impacts_summary)
                 
-                Health Score: {score} ({status})
-                Top Findings: {findings_summary}
-                Top Predictors: {impacts_summary}
-                
-                Provide 2-3 brief 'Dataset Insights' for a non-technical manager. 
-                Explain what these results mean for their business or analysis.
-                Avoid jargon. Keep it to 3 bullets max.
-                """
-                
-                response = analyzer.client.chat.completions.create(
-                    model="gpt-3.5-turbo-0125",
-                    messages=[
-                        {"role": "system", "content": "You are a senior data analyst."},
-                        {"role": "user", "content": prompt}
-                    ]
-                )
-                ai_text = response.choices[0].message.content.strip()
-                
-                report.append("")
-                report.append("### 💡 AI Insider Insights")
-                report.append(ai_text)
+                if ai_text:
+                    report.append("")
+                    report.append("### 💡 AI Insider Insights")
+                    report.append(ai_text)
         except Exception:
             pass # Gracefully degrade if AI fails
+
 
     return "\n".join(report)

@@ -9,8 +9,9 @@ pandas>=2.0
 scikit-learn>=1.4
 numpy>=1.26
 
-# ── AI (optional — set OPENAI_API_KEY in .env to enable) ─────
-openai>=1.0
+# ── AI (optional — set GEMINI_API_KEY in .env to enable) ─────
+google-generativeai
+# openai>=1.0
 
 # ── Config / Env ─────────────────────────────────────────────
 python-dotenv>=1.0

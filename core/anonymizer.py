@@ -53,7 +53,7 @@ def infer_column_types(
     sample_data: List[Dict[str, Any]],
 ) -> Tuple[Dict[str, str], Dict[str, dict]]:
     """
-    Infer column types using AI if OPENAI_API_KEY is set, then statistical
+    Infer column types using AI if GEMINI_API_KEY is set, then statistical
     heuristics for the remainder.
     """
     column_data = preprocess_data(sample_data)
@@ -62,7 +62,7 @@ def infer_column_types(
 
     ai_analyzer = SemanticAnalyzer()
     ai_types: Dict[str, str] = (
-        ai_analyzer.analyze_columns(headers, sample_data) if ai_analyzer.client else {}
+        ai_analyzer.analyze_columns(headers, sample_data) if ai_analyzer.model else {}
     )
 
     for header in headers:
@@ -174,7 +174,7 @@ def apply_anonymization(
     column_types, metadata = infer_column_types(
         headers, preprocessed_data[:min(100, len(preprocessed_data))]
     )
-    ai_active = bool(os.getenv("OPENAI_API_KEY"))
+    ai_active = bool(os.getenv("GEMINI_API_KEY"))
 
     # Apply user type overrides from the per-column config dashboard
     if type_overrides:
